@@ -125,28 +125,59 @@ function alive(pid: number) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-// Commands of the given pids, by pid, from one ps call (design/concepts/session-discovery.md).
-// A pid ps says nothing about is absent from the map.
-function commands(pids: number[]): Map<number, string> {
-  const out = new Map<number, string>();
+// What ps knows about each pid, from one call: when the process really started, and its
+// command. A pid ps says nothing about is absent from the map.
+type ProcInfo = { start?: number; comm?: string };
+function procInfo(pids: number[]): Map<number, ProcInfo> {
+  const out = new Map<number, ProcInfo>();
   if (!pids.length) return out;
-  const r = Bun.spawnSync(["ps", "-o", "pid=,comm=", "-p", pids.join(",")]);
+  const r = Bun.spawnSync(["ps", "-o", "pid=,etime=,comm=", "-p", pids.join(",")]);
+  const now = Date.now() / 1000;
   for (const line of r.stdout.toString().split("\n")) {
-    const m = line.trim().match(/^(\d+)\s+(\S.*)$/);
-    if (m) out.set(Number(m[1]), basename(m[2].trim()));
+    const m = line.trim().match(/^(\d+)\s+(\S+)\s+(\S.*)$/);
+    if (!m) continue;
+    const el = elapsedSeconds(m[2]);
+    out.set(Number(m[1]), { start: el === undefined ? undefined : now - el, comm: m[3].trim() });
   }
   return out;
 }
 
-// Signal 0 only proves that some process the user may signal holds the pid. A registry file
-// left by a session that did not exit cleanly keeps its pid, the system reuses it, and the
-// dead session reads as live: an entry from September was found holding a pid belonging to
-// Terminal.app. The command must therefore be claude. A pid ps names nothing for is kept,
-// so an unexpected ps result shows a session that may be dead rather than hiding a live one.
-const isClaude = (pid: number, cmds: Map<number, string>) => {
-  const c = cmds.get(pid);
-  return c === undefined || c === "claude";
-};
+// ps reports elapsed time as [[dd-]hh:]mm:ss.
+function elapsedSeconds(etime: string): number | undefined {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(etime);
+  if (!m) return;
+  return Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]);
+}
+
+// The registry records procStart in UTC, e.g. "Fri Oct 23 13:02:22 2026".
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function parseProcStart(v: unknown): number | undefined {
+  if (typeof v !== "string") return;
+  const m = /^\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})$/.exec(v.trim());
+  if (!m) return;
+  const mon = MONTHS.indexOf(m[1]);
+  if (mon < 0) return;
+  return Date.UTC(Number(m[6]), mon, Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])) / 1000;
+}
+
+// Signal 0 only proves that some process the user may signal holds the pid. A registry file left
+// by a session that did not exit cleanly keeps its pid, the system reuses it, and the dead
+// session reads as live: an entry from September held a pid belonging to Terminal.app.
+// Identity is checked against the process start time the registry recorded, which is exact and
+// independent of the process's name. The name cannot carry this: Claude Code rewrites it, so a
+// background job reports "claude bg-spare" and ucomm reports the version string, and requiring
+// the name to be "claude" hid real sessions. The name is only a fallback for an entry with no
+// usable procStart, and when neither can be determined the session is kept -- hiding a live
+// session loses the tab the dashboard exists to find, while showing a dead one costs a glance.
+const SAME_PROCESS_TOLERANCE_S = 5;
+function isSameProcess(s: any, info: ProcInfo | undefined): boolean {
+  if (!info) return true;
+  const recorded = parseProcStart(s?.procStart);
+  if (recorded !== undefined && info.start !== undefined)
+    return Math.abs(info.start - recorded) <= SAME_PROCESS_TOLERANCE_S;
+  if (info.comm) return basename(info.comm.split(/\s+/)[0]) === "claude";
+  return true;
+}
 
 function registryEntries(): any[] {
   const out: any[] = [];
@@ -162,10 +193,10 @@ function registryEntries(): any[] {
 // returning both would collapse them into one card and hide a session.
 function liveEntries(): any[] {
   const running = registryEntries().filter((s) => s?.sessionId && s.pid && alive(s.pid));
-  const cmds = commands(running.map((s) => s.pid));
+  const procs = procInfo(running.map((s) => s.pid));
   const newest = new Map<string, any>();
   for (const s of running) {
-    if (!isClaude(s.pid, cmds)) continue;
+    if (!isSameProcess(s, procs.get(s.pid))) continue;
     const prev = newest.get(s.sessionId);
     if (!prev || (s.startedAt ?? 0) > (prev.startedAt ?? 0)) newest.set(s.sessionId, s);
   }
@@ -302,8 +333,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function closeSession(id: string, confirmed: boolean): Promise<[number, string | null, string?]> {
   const s = liveSession(id);
   if (!s) return [404, "no running session with that id"];
-  const comm = (await run(["ps", "-o", "comm=", "-p", String(s.pid)])).out;
-  if (basename(comm) !== "claude") return [422, `process ${s.pid} is not a Claude Code process`];
+  if (!isSameProcess(s, procInfo([s.pid]).get(s.pid)))
+    return [422, `process ${s.pid} is not this session's Claude Code process`];
   const tp = findTranscript(id);
   const label = attention(s.status, tp ? digest(tp) : { tickets: [] }, true);
   if (label !== "idle" && !confirmed)

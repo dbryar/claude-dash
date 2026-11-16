@@ -28,7 +28,7 @@ Sort sessions by what they need from you, so the tab that is waiting on an answe
 ## Design decisions
 
 - **"Asked you" is a heuristic.** Claude Code does not record that it is waiting for an answer, so a question mark at the end of the last reply stands in for it. A wrong guess costs a glance, not lost work.
-- **Busy always means working.** This was originally justified by the registry having only `idle` and `busy`, which is not true: a third value, `shell`, was observed on 16-11-2026 on Claude Code 2.1.220. The rule stands on its own terms (a busy session is mid-turn), but it is not the only value that is not `idle`, and the registry's set of statuses is undocumented and may grow again.
+- **Busy always means working.** This was originally justified by the registry having only `idle` and `busy`, which is not true: a third value, `shell`, was observed on 16-11-2026 on Claude Code 2.1.220. It was not seen again on 2.1.325 the same day, which proves nothing either way — a status that appears only while a session is shelled out cannot be shown absent by a snapshot. The rule stands on its own terms (a busy session is mid-turn), but it is not the only value that is not `idle`, and the registry's set of statuses is undocumented and may grow again.
 - **Anything that is not `busy` is treated as not working.** An unrecognised status falls through to the `asked you` and `idle` rules. That keeps an unknown status visible on the board rather than hiding it, at the cost of labelling it as something it may not be — see the known gap on `shell` below.
 
 ## Acceptance criteria

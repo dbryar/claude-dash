@@ -54,7 +54,10 @@ Turn a session transcript (often several megabytes of JSON lines) into the handf
 ## Known implementation gaps
 
 - No automated tests cover these criteria yet.
-- `cost-state` is not written by every Claude Code version. On 2.1.220 it does not appear at all: a survey on 16-11-2026 of every record type across 14 transcripts found `ai-title`, `last-prompt` and `system/away_summary` present and `cost-state` absent, so `costUsd` is never set and no cost is shown. Whether the record was added after 2.1.220, renamed or removed is not known, because only that one version was available to look at. Criterion 3's cost clause is therefore unverified on that version.
+- `cost-state` is not written by every Claude Code version, and the version decides whether any cost is shown. Measured 16-11-2026: absent from every transcript written by 2.1.220 (a survey of all record types across 14 transcripts), present on 2.1.325. So `cost-state` arrived at or before 2.1.325 and after 2.1.220; the exact release is not known and does not need to be, since 2.1.325 is the version this design is written against. Criterion 3's cost clause is verified on 2.1.325 and known not to apply below it.
+- The record carries more than this concept reads: `totalCostUSD`, `totalAPIDuration`, `totalAPIDurationWithoutRetries`, `totalToolDuration`, `totalLinesAdded`, `totalLinesRemoved`, `totalDuration`, `startTime`, `modelUsage` and `hasUnknownModelCost`. Only `totalCostUSD` is used. The rest is recorded here because it is the only per-session usage data the CLI writes.
+- A session resumed across an upgrade keeps its old records: one transcript observed holding 526 records written by 2.1.220 and 27 by 2.1.325. A record's presence is therefore a property of the record, not of the file or of the installed version.
+- `cost-state` is not written on every turn. A session resumed on 2.1.325 and actively working had none after 27 records, while a session freshly started on 2.1.325 had one within seconds. When it is written is not established.
 - The whole file is read on every change. A long session costs a full re-parse each time it is appended to.
 
 ## Change history

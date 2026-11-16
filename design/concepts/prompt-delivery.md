@@ -52,7 +52,7 @@ Send the next prompt to a session that is waiting on you, from the dashboard, wi
 5. Given text that is empty after cleaning and trimming, then nothing is sent and the request is refused as invalid.
 6. Given text longer than 20,000 characters, then nothing is sent and the request is refused as too long.
 7. Given a session id that is not in the registry, or whose `pid` is not running, then nothing is sent and the request is refused as not found.
-8. Given a session id whose only live registry entry holds a `pid` that `ps` reports as a command other than `claude`, then nothing is sent and the request is refused as not found.
+8. Given a session id whose only live registry entry holds a `pid` that is no longer the process the registry recorded (see [Session discovery](session-discovery.md) criterion 3), then nothing is sent and the request is refused as not found.
 9. Given a session id with two live registry entries, then the prompt is delivered to the process in the entry with the later `startedAt`, which is the one [Session discovery](session-discovery.md) lists.
 10. Given a session whose registry status is not `idle`, then nothing is sent and the request is refused as busy. This includes a status that is neither `idle` nor `busy`, such as `shell`.
 10a. `canReply` is published for every live session and is true exactly when the registry status is `idle`, so no session the page offers a composer for can be refused by criterion 10.
