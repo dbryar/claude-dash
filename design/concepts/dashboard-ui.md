@@ -51,7 +51,8 @@ Show every session on one page, ordered by what needs you, so you can find the t
 11. The page refreshes data every 5 seconds without reloading; when the server is unreachable, the header says so.
 12. Dates display as `DD-MM-YYYY HH:mm` in 24-hour time.
 13. All session text is HTML-escaped before display.
-14. Cards for live sessions in "Waiting on you" or "Idle" have a "reply" button that opens a text box with a "Send" button; "Working" and closed cards have none.
+14. A live card has a "reply" button, opening a text box with a "Send" button, exactly when its session's `canReply` is true; every other card, including closed ones, has none. The button follows `canReply` and not the column, so a session the server would refuse is never offered a composer.
+14a. Given a live session whose registry status is neither `idle` nor `busy`, then its card shows that status, so a card with no reply button says why.
 15. Given the reply box has text, when "Send" is clicked or Cmd+Enter (Ctrl+Enter) is pressed, then the text is posted for that session; on success the box is cleared and closed; on failure the reason is shown and the text is kept.
 16. Given text is typed in a reply box or the box has focus, when the data refreshes or the card moves column, then the text, cursor and focus are unchanged.
 17. While a reply is being sent, its "Send" button is disabled.

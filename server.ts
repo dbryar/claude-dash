@@ -192,7 +192,11 @@ function collect() {
       live: true, name: s.name, pid: s.pid, kind: s.kind, status: s.status,
       cwd: s.cwd, repo: basename(s.cwd), sessionId: s.sessionId,
       startedAt: s.startedAt, statusSince: s.statusUpdatedAt,
-      attention: attention(s.status, d as Digest, true), ...d,
+      attention: attention(s.status, d as Digest, true),
+      // Owned by prompt delivery, not inferred from the label: the registry has statuses
+      // beyond idle and busy (`shell`), and those are labelled idle but cannot be replied to.
+      canReply: s.status === "idle",
+      ...d,
     });
   }
 

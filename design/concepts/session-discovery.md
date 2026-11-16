@@ -46,7 +46,7 @@ Find every Claude Code session worth showing: the ones running now, and the ones
 
 ## Acceptance criteria
 
-1. Given a registry file whose `pid` is running, when `/api/sessions` is requested, then that session appears in `live` with its `name`, `pid`, `kind`, `status`, `cwd`, `repo` (last path segment of `cwd`), `sessionId`, `startedAt` and `statusSince`.
+1. Given a registry file whose `pid` is running, when `/api/sessions` is requested, then that session appears in `live` with its `name`, `pid`, `kind`, `status`, `cwd`, `repo` (last path segment of `cwd`), `sessionId`, `startedAt`, `statusSince` and `canReply` (see [Prompt delivery](prompt-delivery.md) criterion 10a).
 2. Given a registry file whose `pid` is not running, then that session does not appear in `live`.
 3. Given a registry file whose `pid` is running but whose command, as reported by `ps`, is not `claude`, then that session does not appear in `live`.
 4. Given a registry file whose `pid` is running and for which `ps` reports no command at all, then that session still appears in `live`.
