@@ -32,6 +32,7 @@ Turn a session transcript (often several megabytes of JSON lines) into the handf
 ## Design decisions
 
 - **Use what Claude Code already wrote.** The `ai-title`, `system/away_summary`, `last-prompt` and `cost-state` records already summarise the session, so the dashboard makes no model calls of its own.
+- **Every record is optional, because the transcript format is not a published interface.** A record this concept reads can be absent on a Claude Code version other than the one the design was written against, so each field is reported as absent rather than defaulted. A reader of the digest must distinguish "no cost recorded" from "cost is zero".
 - **Later records win.** Titles and summaries are rewritten as a session goes on, so the last one in the file is the current one.
 - **Subagent lines are ignored** (`isSidechain`), because they describe delegated work, not the session's own state.
 - **Ticket keys are ranked by recency, capped at four**, because long sessions mention dozens and only the recent ones say what the tab is doing now.
@@ -41,7 +42,7 @@ Turn a session transcript (often several megabytes of JSON lines) into the handf
 
 1. Given several `ai-title` records, then `title` is the last one's `aiTitle`.
 2. Given several `system` records with subtype `away_summary`, then `away` and `awayAt` come from the last one.
-3. Given a `last-prompt` record, then `lastPrompt` is its `lastPrompt`; given a `cost-state` record, then `costUsd` is its `totalCostUSD`.
+3. Given a `last-prompt` record, then `lastPrompt` is its `lastPrompt`; given a `cost-state` record, then `costUsd` is its `totalCostUSD`; given no `cost-state` record, then `costUsd` is absent, not zero.
 4. `lastAssistant` is the text of the last assistant message that has non-empty text.
 5. `lastAt` is the timestamp of the last user or assistant record.
 6. `firstPrompt` is the first 300 characters of the first user message that is not meta, not empty, and does not start with `<` or `Caveat:`.
@@ -53,6 +54,7 @@ Turn a session transcript (often several megabytes of JSON lines) into the handf
 ## Known implementation gaps
 
 - No automated tests cover these criteria yet.
+- `cost-state` is not written by every Claude Code version. On 2.1.220 it does not appear at all: a survey on 16-11-2026 of every record type across 14 transcripts found `ai-title`, `last-prompt` and `system/away_summary` present and `cost-state` absent, so `costUsd` is never set and no cost is shown. Whether the record was added after 2.1.220, renamed or removed is not known, because only that one version was available to look at. Criterion 3's cost clause is therefore unverified on that version.
 - The whole file is read on every change. A long session costs a full re-parse each time it is appended to.
 
 ## Change history

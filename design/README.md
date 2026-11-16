@@ -84,3 +84,10 @@ Dotted edges cross the boundary of this repository.
 | Terminal scripting | macOS Terminal | Typing a prompt into a session's tab; needs your permission for the server to control Terminal |
 
 Both Claude Code sources are internal state, not a published interface. The design was written against Claude Code 2.1.325.
+
+Where a version has been observed to differ, the concept records it rather than the design assuming one version. Known divergences on 2.1.220, measured 16-11-2026:
+
+| Observation | Concept | Effect |
+| --- | --- | --- |
+| No `cost-state` records exist | [Transcript digest](concepts/transcript-digest.md) | No cost is shown on any card |
+| Registry `status` can be `shell`, not just `idle` or `busy` | [Attention classification](concepts/attention-classification.md) | Such a session is labelled idle and its reply button always fails |
