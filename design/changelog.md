@@ -4,4 +4,5 @@ Append-only. One entry per design change, most recent first. A code change with 
 
 | Date | Concept(s) affected | Change | Why |
 | --- | --- | --- | --- |
+| `2026-11-16` | dashboard-ui | Sessions laid out as columns (waiting on you, working, idle, plus closed when ticked) instead of stacked groups; one swipeable column at a time at 720 px and narrower, with a tab strip; cards keyed by session id so an expanded last reply survives a refresh. Criteria 1 to 7 added or rewritten. | Groups stacked as rows made state changes hard to follow and were unusable on a phone, and every 5-second refresh collapsed an expanded last reply. |
 | `2026-11-16` | all | Design folder created. Eight concepts, the coordination map and acceptance criteria written to match the code at commit `b2ffa76`. No automated tests exist; each concept lists that under "Known implementation gaps". The permission-prompt interaction in attention classification is recorded as `designed`. | Start the design-first workflow so later changes are made against a written design. |

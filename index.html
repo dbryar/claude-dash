@@ -5,97 +5,190 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Session board</title>
 <style>
-  :root { --bg:#f6f6f4; --card:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e2e2dd;
+  :root { --bg:#f6f6f4; --card:#fff; --col:#ececea; --ink:#1d1d1b; --muted:#6b6b66; --line:#dcdcd6;
           --ask:#b4530a; --work:#1f6feb; --idle:#6b6b66; --closed:#9a9a94; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#151514; --card:#1f1f1d; --ink:#ececea; --muted:#a0a09a; --line:#33332f;
+    :root { --bg:#151514; --card:#232321; --col:#1b1b1a; --ink:#ececea; --muted:#a0a09a; --line:#33332f;
             --ask:#f0a050; --work:#6aa6ff; --idle:#a0a09a; --closed:#77776f; }
   }
   * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 -apple-system, system-ui, sans-serif }
-  header { display:flex; gap:16px; align-items:baseline; padding:16px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap }
+  [hidden] { display:none !important }
+  html, body { height:100% }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 -apple-system, system-ui, sans-serif;
+         display:flex; flex-direction:column }
+  header { display:flex; gap:12px 16px; align-items:baseline; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; flex:none }
   h1 { font-size:18px; margin:0 }
   .muted { color:var(--muted) }
-  input { padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); min-width:240px }
-  main { padding:16px 20px; max-width:1500px }
-  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:20px 0 8px }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:12px }
-  .card { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--c); border-radius:8px; padding:12px 14px }
-  .top { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  input[type=search] { padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); min-width:220px; flex:1 1 220px; max-width:360px }
+
+  /* Tab strip: only shown when one column is visible at a time. */
+  nav { display:none; gap:6px; padding:8px 16px 0; overflow-x:auto; flex:none }
+  nav button { flex:none; border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:14px; padding:4px 10px; font:13px system-ui, sans-serif; cursor:pointer }
+  nav button.on { border-color:var(--c); color:var(--c); font-weight:600 }
+
+  /* Columns: side by side, each scrolling on its own. */
+  #board { position:relative; flex:1; min-height:0; display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:12px; padding:12px 16px 16px }
+  .col { display:flex; flex-direction:column; min-height:0; background:var(--col); border-radius:10px; border-top:3px solid var(--c) }
+  .col h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--c); margin:0; padding:10px 12px 6px; flex:none }
+  .cards { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding:4px 10px 12px }
+  .empty { color:var(--muted); font-size:13px; padding:8px 4px }
+
+  /* Narrow screens: one column at a time, swiped left and right. */
+  @media (max-width:720px) {
+    nav { display:flex }
+    #board { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; gap:12px; padding:8px 16px 12px; scrollbar-width:none }
+    #board::-webkit-scrollbar { display:none }
+    .col { flex:0 0 100%; scroll-snap-align:center; scroll-snap-stop:always }
+    input[type=search] { max-width:none }
+  }
+
+  .card { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--c); border-radius:8px; padding:10px 12px; flex:none }
+  .top { display:flex; gap:6px 8px; align-items:center; flex-wrap:wrap }
   .name { font-weight:600 }
-  .chip { font-size:11px; padding:1px 8px; border-radius:10px; border:1px solid var(--c); color:var(--c) }
-  .tix span { font-size:11px; padding:1px 6px; border-radius:4px; background:var(--line); margin-right:4px }
-  .title { font-size:15px; font-weight:600; margin:6px 0 4px }
-  .away { margin:4px 0 }
-  .prompt { color:var(--muted); font-size:13px; margin:4px 0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden }
-  .meta { display:flex; gap:12px; color:var(--muted); font-size:12px; margin-top:8px; flex-wrap:wrap; align-items:center }
-  button { font:12px ui-monospace, monospace; border:1px solid var(--line); background:transparent; color:var(--ink); border-radius:5px; padding:2px 8px; cursor:pointer }
-  details summary { cursor:pointer; color:var(--muted); font-size:12px }
-  details pre { white-space:pre-wrap; font-size:12px; max-height:260px; overflow:auto }
-  @media (max-width:520px) { .grid { grid-template-columns:1fr } main,header { padding:12px 16px } }
+  .tix span { font-size:11px; padding:1px 6px; border-radius:4px; background:var(--col); margin-right:4px }
+  .title { font-size:15px; font-weight:600; margin:6px 0 4px; overflow-wrap:anywhere }
+  .away { margin:4px 0; overflow-wrap:anywhere }
+  .prompt { color:var(--muted); font-size:13px; margin:4px 0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
+  .meta { display:flex; gap:4px 12px; color:var(--muted); font-size:12px; margin-top:8px; flex-wrap:wrap; align-items:center }
+  .meta button { font:12px ui-monospace, monospace; border:1px solid var(--line); background:transparent; color:var(--ink); border-radius:5px; padding:2px 8px; cursor:pointer }
+  details summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:6px }
+  details pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; max-height:260px; overflow:auto }
 </style>
 </head>
 <body>
 <header>
   <h1>Session board</h1>
   <span id="counts" class="muted"></span>
-  <input id="q" placeholder="Filter by name, repo, ticket, text" autocomplete="off">
+  <input id="q" type="search" placeholder="Filter by name, repo, ticket, text" autocomplete="off">
   <label class="muted"><input type="checkbox" id="showClosed"> show recently closed</label>
   <span id="updated" class="muted"></span>
 </header>
-<main id="root"></main>
+<nav id="tabs"></nav>
+<main id="board"></main>
 <script>
-const COLOURS = { "asked you":"var(--ask)", working:"var(--work)", idle:"var(--idle)", closed:"var(--closed)" };
-const ORDER = ["asked you","working","idle"];
-const LABEL = { "asked you":"Waiting on you", working:"Working", idle:"Idle", closed:"Closed, resumable" };
+const COLUMNS = [
+  { key:"asked you", label:"Waiting on you", colour:"var(--ask)" },
+  { key:"working",   label:"Working",        colour:"var(--work)" },
+  { key:"idle",      label:"Idle",           colour:"var(--idle)" },
+  { key:"closed",    label:"Closed, resumable", colour:"var(--closed)", optional:true },
+];
+const COLOUR = Object.fromEntries(COLUMNS.map(c => [c.key, c.colour]));
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const ago = t => { if (!t) return ""; const s = (Date.now() - new Date(t)) / 1000;
   if (s < 90) return Math.round(s) + "s ago"; if (s < 5400) return Math.round(s/60) + " min ago";
   if (s < 172800) return Math.round(s/3600) + " h ago"; return Math.round(s/86400) + " d ago"; };
-const when = t => t ? new Date(t).toLocaleString("en-AU", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false }).replace(/\//g,"-") : "";
-let data = { live:[], closed:[] };
+const when = t => t ? new Date(t).toLocaleString("en-AU", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false }).replace(/\//g,"-").replace(",", "") : "";
 
-function card(s) {
-  const c = COLOURS[s.attention];
-  const resume = `claude --resume ${s.sessionId}`;
-  return `<div class="card" style="--c:${c}">
-    <div class="top">
+let data = { live:[], closed:[] };
+// View state that must survive re-rendering, keyed by session id.
+const openReplies = new Set();
+const cards = new Map(); // sessionId -> { el, html }
+
+const board = document.getElementById("board");
+const tabs = document.getElementById("tabs");
+for (const c of COLUMNS) {
+  board.insertAdjacentHTML("beforeend",
+    `<section class="col" data-key="${c.key}" style="--c:${c.colour}"><h2></h2><div class="cards"></div><div class="empty">Nothing here.</div></section>`);
+  tabs.insertAdjacentHTML("beforeend", `<button data-key="${c.key}" style="--c:${c.colour}"></button>`);
+}
+const colEl = key => board.querySelector(`.col[data-key="${CSS.escape(key)}"]`);
+
+function cardHtml(s) {
+  return `<div class="top">
       ${s.name ? `<span class="name">${esc(s.name)}</span>` : ""}
       <span class="muted">${esc(s.repo)}</span>
-      <span class="chip">${esc(LABEL[s.attention])}</span>
       <span class="tix">${(s.tickets||[]).map(t => `<span>${esc(t)}</span>`).join("")}</span>
     </div>
     <div class="title">${esc(s.title || s.firstPrompt || "(untitled)")}</div>
     ${s.away ? `<div class="away">${esc(s.away)} <span class="muted">(${ago(s.awayAt)})</span></div>` : ""}
     ${s.lastPrompt ? `<div class="prompt">You last asked: ${esc(s.lastPrompt)}</div>` : ""}
-    ${s.lastAssistant ? `<details><summary>Last reply</summary><pre>${esc(s.lastAssistant.slice(-3000))}</pre></details>` : ""}
+    ${s.lastAssistant ? `<details${openReplies.has(s.sessionId) ? " open" : ""}><summary>Last reply</summary><pre>${esc(s.lastAssistant.slice(-3000))}</pre></details>` : ""}
     <div class="meta">
       <span>last activity ${ago(s.lastAt)}</span>
       ${s.startedAt ? `<span>started ${when(s.startedAt)}</span>` : ""}
       ${s.pid ? `<span>pid ${s.pid}</span>` : ""}
       ${s.costUsd != null ? `<span>US$${s.costUsd.toFixed(2)}</span>` : ""}
-      <button data-copy="${esc(resume)}" title="Copy resume command">copy resume</button>
-    </div>
-  </div>`;
+      <button data-copy="${esc(`claude --resume ${s.sessionId}`)}" title="Copy resume command">copy resume</button>
+    </div>`;
+}
+
+// Returns the card element for a session, replacing it only when its content changed.
+function cardFor(s) {
+  const html = cardHtml(s);
+  let entry = cards.get(s.sessionId);
+  if (entry && entry.html === html) return entry.el;
+  const el = document.createElement("article");
+  el.className = "card";
+  el.dataset.id = s.sessionId;
+  el.innerHTML = html;
+  if (entry) entry.el.replaceWith(el);
+  cards.set(s.sessionId, { el, html });
+  return el;
 }
 
 function render() {
   const q = document.getElementById("q").value.toLowerCase();
+  const showClosed = document.getElementById("showClosed").checked;
   const match = s => !q || JSON.stringify([s.name,s.repo,s.title,s.away,s.lastPrompt,s.tickets,s.firstPrompt]).toLowerCase().includes(q);
-  const live = data.live.filter(match);
-  let html = "";
-  for (const a of ORDER) {
-    const group = live.filter(s => s.attention === a).sort((x,y) => (y.lastAt||"").localeCompare(x.lastAt||""));
-    if (group.length) html += `<h2>${LABEL[a]} (${group.length})</h2><div class="grid">${group.map(card).join("")}</div>`;
+  const byRecent = (x, y) => (y.lastAt||"").localeCompare(x.lastAt||"");
+  const all = [...data.live, ...(showClosed ? data.closed : [])];
+  const seen = new Set();
+  // Replacing or moving a card resets the scroll of its expanded reply, so record and restore it.
+  const replyScroll = new Map();
+  for (const [id, { el }] of cards) { const pre = el.querySelector("details[open] pre"); if (pre) replyScroll.set(id, pre.scrollTop); }
+
+  for (const c of COLUMNS) {
+    const col = colEl(c.key), tab = tabs.querySelector(`[data-key="${CSS.escape(c.key)}"]`);
+    const visibleCol = !c.optional || showClosed;
+    col.hidden = tab.hidden = !visibleCol;
+    if (!visibleCol) continue;
+    const group = all.filter(s => s.attention === c.key).sort(byRecent);
+    const list = col.querySelector(".cards");
+    let shown = 0;
+    group.forEach((s, i) => {
+      const el = cardFor(s);
+      seen.add(s.sessionId);
+      el.hidden = !match(s);
+      if (!el.hidden) shown++;
+      if (list.children[i] !== el) list.insertBefore(el, list.children[i] || null);
+    });
+    col.querySelector(".empty").hidden = shown > 0;
+    const n = q ? `${shown} of ${group.length}` : `${group.length}`;
+    col.querySelector("h2").textContent = `${c.label} (${n})`;
+    tab.textContent = `${c.label} ${n}`;
   }
-  if (document.getElementById("showClosed").checked) {
-    const closed = data.closed.filter(match);
-    html += `<h2>${LABEL.closed} (${closed.length})</h2><div class="grid">${closed.map(card).join("")}</div>`;
-  }
-  document.getElementById("root").innerHTML = html || `<p class="muted">No sessions match.</p>`;
-  const n = a => data.live.filter(s => s.attention === a).length;
-  document.getElementById("counts").textContent = `${data.live.length} open: ${n("asked you")} waiting on you, ${n("working")} working, ${n("idle")} idle`;
+  for (const [id, entry] of cards) if (!seen.has(id)) { entry.el.remove(); cards.delete(id); }
+  for (const [id, top] of replyScroll) { const pre = cards.get(id)?.el.querySelector("details[open] pre"); if (pre) pre.scrollTop = top; }
+
+  const count = k => data.live.filter(s => s.attention === k).length;
+  document.getElementById("counts").textContent =
+    `${data.live.length} open: ${count("asked you")} waiting on you, ${count("working")} working, ${count("idle")} idle`;
+  markTab();
 }
+
+// Highlights the tab for the column in view (narrow screens only).
+function markTab() {
+  const mid = board.scrollLeft + board.clientWidth / 2;
+  let current;
+  for (const col of board.querySelectorAll(".col:not([hidden])"))
+    if (col.offsetLeft <= mid) current = col.dataset.key;
+  for (const b of tabs.children) b.classList.toggle("on", b.dataset.key === current);
+}
+board.addEventListener("scroll", () => requestAnimationFrame(markTab), { passive:true });
+tabs.addEventListener("click", e => {
+  const key = e.target.dataset?.key;
+  if (key) colEl(key).scrollIntoView({ behavior:"smooth", inline:"center", block:"nearest" });
+});
+
+// Remember which last replies are expanded.
+board.addEventListener("toggle", e => {
+  const card = e.target.closest?.(".card");
+  if (!card || e.target.tagName !== "DETAILS") return;
+  e.target.open ? openReplies.add(card.dataset.id) : openReplies.delete(card.dataset.id);
+  const entry = cards.get(card.dataset.id), s = findSession(card.dataset.id);
+  if (entry && s) entry.html = cardHtml(s);
+}, true);
+const findSession = id => data.live.find(s => s.sessionId === id) || data.closed.find(s => s.sessionId === id);
 
 async function refresh() {
   try {
@@ -104,9 +197,13 @@ async function refresh() {
     render();
   } catch (e) { document.getElementById("updated").textContent = "server not reachable"; }
 }
-document.addEventListener("click", e => { const v = e.target.dataset?.copy; if (v) { navigator.clipboard.writeText(v); e.target.textContent = "copied"; setTimeout(() => e.target.textContent = "copy resume", 1200); } });
+document.addEventListener("click", e => {
+  const v = e.target.dataset?.copy;
+  if (v) { navigator.clipboard.writeText(v); e.target.textContent = "copied"; setTimeout(() => e.target.textContent = "copy resume", 1200); }
+});
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("showClosed").addEventListener("change", render);
+window.addEventListener("resize", markTab);
 refresh(); setInterval(refresh, 5000);
 </script>
 </body>
