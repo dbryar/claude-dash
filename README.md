@@ -85,6 +85,10 @@ Saving `.env` restarts the server with the new values.
 | Run without launchd | `bun server.ts` (stop the agent first, or set another port) |
 | Uninstall | `./install.sh --uninstall` |
 
+## Design
+
+The code is built against the design in [`design/`](design/README.md): one file per concept, each with its acceptance criteria, and a coordination map showing how they connect. Change the design first, then the code, in the same commit.
+
 ## Limitations
 
 - "Waiting on you" is a guess: it means the last reply ended with a question mark.
