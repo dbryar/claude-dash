@@ -44,7 +44,9 @@ flowchart LR
     closing["Session closing"]
     terminal["macOS Terminal<br/>(external)"]
 
-    discovery -.->|"reads registry and transcripts"| cc
+    discovery -.->|"reads registry and transcripts, checks each pid is a claude process"| cc
+    delivery -->|"resolves a session id to its live entry"| discovery
+    closing -->|"resolves a session id to its live entry"| discovery
     digest -.->|"reads transcript lines"| cc
     discovery -->|"asks for a digest per transcript"| digest
     discovery -->|"passes status and digest"| attention

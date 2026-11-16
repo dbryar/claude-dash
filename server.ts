@@ -119,6 +119,53 @@ function alive(pid: number) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+// Commands of the given pids, by pid, from one ps call (design/concepts/session-discovery.md).
+// A pid ps says nothing about is absent from the map.
+function commands(pids: number[]): Map<number, string> {
+  const out = new Map<number, string>();
+  if (!pids.length) return out;
+  const r = Bun.spawnSync(["ps", "-o", "pid=,comm=", "-p", pids.join(",")]);
+  for (const line of r.stdout.toString().split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\S.*)$/);
+    if (m) out.set(Number(m[1]), basename(m[2].trim()));
+  }
+  return out;
+}
+
+// Signal 0 only proves that some process the user may signal holds the pid. A registry file
+// left by a session that did not exit cleanly keeps its pid, the system reuses it, and the
+// dead session reads as live: an entry from September was found holding a pid belonging to
+// Terminal.app. The command must therefore be claude. A pid ps names nothing for is kept,
+// so an unexpected ps result shows a session that may be dead rather than hiding a live one.
+const isClaude = (pid: number, cmds: Map<number, string>) => {
+  const c = cmds.get(pid);
+  return c === undefined || c === "claude";
+};
+
+function registryEntries(): any[] {
+  const out: any[] = [];
+  for (const f of readdirSync(SESSIONS).filter((f) => f.endsWith(".json"))) {
+    try { out.push(JSON.parse(readFileSync(join(SESSIONS, f), "utf8"))); } catch {}
+  }
+  return out;
+}
+
+// The live sessions, one entry per session id. `claude --resume` starts a new process for an
+// existing session id, so a session can have two registry entries and both can be live; the
+// later startedAt is the process running now. The dashboard keys cards by session id, so
+// returning both would collapse them into one card and hide a session.
+function liveEntries(): any[] {
+  const running = registryEntries().filter((s) => s?.sessionId && s.pid && alive(s.pid));
+  const cmds = commands(running.map((s) => s.pid));
+  const newest = new Map<string, any>();
+  for (const s of running) {
+    if (!isClaude(s.pid, cmds)) continue;
+    const prev = newest.get(s.sessionId);
+    if (!prev || (s.startedAt ?? 0) > (prev.startedAt ?? 0)) newest.set(s.sessionId, s);
+  }
+  return [...newest.values()];
+}
+
 function attention(status: string, d: Digest, live: boolean): string {
   if (!live) return "closed";
   if (status === "busy" && d.pendingTool) return "working"; // the registry only records idle/busy, so a permission prompt also reads as busy
@@ -131,10 +178,7 @@ function attention(status: string, d: Digest, live: boolean): string {
 function collect() {
   const live: any[] = [];
   const liveIds = new Set<string>();
-  for (const f of readdirSync(SESSIONS).filter((f) => f.endsWith(".json"))) {
-    let s: any;
-    try { s = JSON.parse(readFileSync(join(SESSIONS, f), "utf8")); } catch { continue; }
-    if (!alive(s.pid)) continue;
+  for (const s of liveEntries()) {
     const tp = findTranscript(s.sessionId);
     const d = tp ? digest(tp) : { tickets: [] };
     liveIds.add(s.sessionId);
@@ -185,13 +229,10 @@ function cleanPrompt(text: string) {
   return text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "").trim();
 }
 
+// Resolved the same way the dashboard lists sessions, so what a card shows and what receives
+// a reply (or a close) cannot disagree. See design/concepts/prompt-delivery.md.
 function liveSession(id: string) {
-  for (const f of readdirSync(SESSIONS).filter((f) => f.endsWith(".json"))) {
-    try {
-      const s = JSON.parse(readFileSync(join(SESSIONS, f), "utf8"));
-      if (s.sessionId === id && alive(s.pid)) return s;
-    } catch {}
-  }
+  return liveEntries().find((s) => s.sessionId === id);
 }
 
 async function run(cmd: string[]) {
