@@ -1,5 +1,6 @@
 #!/bin/bash
-# Installs (or reinstalls) the session board as two per-user LaunchAgents:
+# Installs (or reinstalls) the session board as two per-user LaunchAgents,
+# built from the templates in launchd/:
 #   local.session-board           the server, restarted by launchd whenever it exits
 #   local.session-board.watchdog  health and code-change checks (watchdog.sh)
 # Uninstall: ./install.sh --uninstall
@@ -8,51 +9,32 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 AGENTS="$HOME/Library/LaunchAgents"
 LOGS="$HOME/Library/Logs/session-board"
 DOMAIN="gui/$(id -u)"
-BUN="$(command -v bun)"
+LABELS=(local.session-board local.session-board.watchdog)
 
-for label in local.session-board.watchdog local.session-board; do
+for label in "${LABELS[@]}"; do
   launchctl bootout "$DOMAIN/$label" 2>/dev/null || true
   rm -f "$AGENTS/$label.plist"
 done
 if [ "${1:-}" = "--uninstall" ]; then echo "uninstalled"; exit 0; fi
 
+BUN="$(command -v bun || true)"
+if [ -z "$BUN" ]; then echo "bun not found on PATH (https://bun.sh)" >&2; exit 1; fi
+if [ ! -f "$DIR/.env" ]; then
+  cp "$DIR/.env.example" "$DIR/.env"
+  echo "created .env from .env.example; edit it to set your ticket prefixes"
+fi
+
 mkdir -p "$AGENTS" "$LOGS"
 chmod +x "$DIR/watchdog.sh"
 
-cat > "$AGENTS/local.session-board.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>local.session-board</string>
-  <key>ProgramArguments</key><array><string>$BUN</string><string>$DIR/server.ts</string></array>
-  <key>WorkingDirectory</key><string>$DIR</string>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ThrottleInterval</key><integer>10</integer>
-  <key>ProcessType</key><string>Background</string>
-  <key>StandardOutPath</key><string>$LOGS/server.log</string>
-  <key>StandardErrorPath</key><string>$LOGS/server.log</string>
-</dict>
-</plist>
-EOF
+# Paths are escaped for sed and for XML before substitution.
+esc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/[|\\&]/\\&/g'; }
+for label in "${LABELS[@]}"; do
+  sed -e "s|{{BUN}}|$(esc "$BUN")|g" -e "s|{{DIR}}|$(esc "$DIR")|g" -e "s|{{LOGS}}|$(esc "$LOGS")|g" \
+    "$DIR/launchd/$label.plist.template" > "$AGENTS/$label.plist"
+  plutil -lint -s "$AGENTS/$label.plist"
+  launchctl bootstrap "$DOMAIN" "$AGENTS/$label.plist"
+done
 
-cat > "$AGENTS/local.session-board.watchdog.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>local.session-board.watchdog</string>
-  <key>ProgramArguments</key><array><string>$DIR/watchdog.sh</string></array>
-  <key>StartInterval</key><integer>30</integer>
-  <key>WatchPaths</key><array><string>$DIR/server.ts</string><string>$DIR/index.html</string><string>$DIR/.env</string></array>
-  <key>ProcessType</key><string>Background</string>
-  <key>StandardOutPath</key><string>$LOGS/watchdog.log</string>
-  <key>StandardErrorPath</key><string>$LOGS/watchdog.log</string>
-</dict>
-</plist>
-EOF
-
-launchctl bootstrap "$DOMAIN" "$AGENTS/local.session-board.plist"
-launchctl bootstrap "$DOMAIN" "$AGENTS/local.session-board.watchdog.plist"
-echo "installed: http://127.0.0.1:${SESSION_BOARD_PORT:-7377}  logs: $LOGS"
+PORT="$(sed -n 's/^SESSION_BOARD_PORT=//p' "$DIR/.env" | tail -1)"
+echo "installed: http://127.0.0.1:${PORT:-7377}  logs: $LOGS"
