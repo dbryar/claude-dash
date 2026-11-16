@@ -42,8 +42,13 @@
     input[type=search] { max-width:none }
   }
 
-  .card { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--c); border-radius:8px; padding:10px 12px; flex:none }
-  .top { display:flex; gap:6px 8px; align-items:center; flex-wrap:wrap }
+  .card { position:relative; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--c); border-radius:8px; padding:10px 12px; flex:none }
+  .top { display:flex; gap:6px 8px; align-items:center; flex-wrap:wrap; padding-right:24px }
+  .x { position:absolute; top:6px; right:6px; width:24px; height:24px; border:0; border-radius:12px; background:transparent; color:var(--muted); font:18px/24px system-ui, sans-serif; cursor:pointer; padding:0 }
+  .x:hover { background:var(--col); color:var(--ink) }
+  .x:disabled { opacity:.4; cursor:default }
+  .card .note { color:var(--ask); font-size:12px; margin-top:6px }
+  #notice { color:var(--muted) }
   .name { font-weight:600 }
   .tix span { font-size:11px; padding:1px 6px; border-radius:4px; background:var(--col); margin-right:4px }
   .title { font-size:15px; font-weight:600; margin:6px 0 4px; overflow-wrap:anywhere }
@@ -52,6 +57,13 @@
   .meta { display:flex; gap:4px 12px; color:var(--muted); font-size:12px; margin-top:8px; flex-wrap:wrap; align-items:center }
   .meta button { font:12px ui-monospace, monospace; border:1px solid var(--line); background:transparent; color:var(--ink); border-radius:5px; padding:2px 8px; cursor:pointer }
   details summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:6px }
+  .composer { margin-top:8px; display:flex; flex-direction:column; gap:6px }
+  .composer textarea { width:100%; min-height:72px; resize:vertical; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); font:13px/1.4 -apple-system, system-ui, sans-serif }
+  .composer .row { display:flex; gap:8px; align-items:center; justify-content:flex-end }
+  .composer .err { color:var(--ask); font-size:12px; margin-right:auto }
+  .composer .hint { color:var(--muted); font-size:11px }
+  .composer button { border:1px solid var(--c); background:var(--c); color:#fff; border-radius:5px; padding:3px 12px; font:600 12px system-ui, sans-serif; cursor:pointer }
+  .composer button:disabled { opacity:.5; cursor:default }
   details pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; max-height:260px; overflow:auto }
 </style>
 </head>
@@ -62,6 +74,7 @@
   <input id="q" type="search" placeholder="Filter by name, repo, ticket, text" autocomplete="off">
   <label class="muted"><input type="checkbox" id="showClosed"> show recently closed</label>
   <span id="updated" class="muted"></span>
+  <span id="notice"></span>
 </header>
 <nav id="tabs"></nav>
 <main id="board"></main>
@@ -82,7 +95,11 @@ const when = t => t ? new Date(t).toLocaleString("en-AU", { day:"2-digit", month
 let data = { live:[], closed:[] };
 // View state that must survive re-rendering, keyed by session id.
 const openReplies = new Set();
-const cards = new Map(); // sessionId -> { el, html }
+const openComposers = new Set();
+// sessionId -> { el, body, composer, html }. The element lives as long as the session; only
+// its body is re-rendered, so the composer (and anything typed in it) is never rebuilt.
+const cards = new Map();
+const canReply = s => s.live && (s.attention === "asked you" || s.attention === "idle");
 
 const board = document.getElementById("board");
 const tabs = document.getElementById("tabs");
@@ -94,7 +111,7 @@ for (const c of COLUMNS) {
 const colEl = key => board.querySelector(`.col[data-key="${CSS.escape(key)}"]`);
 
 function cardHtml(s) {
-  return `<div class="top">
+  return `${s.live ? `<button class="x" data-close title="Close this session">×</button>` : ""}<div class="top">
       ${s.name ? `<span class="name">${esc(s.name)}</span>` : ""}
       <span class="muted">${esc(s.repo)}</span>
       <span class="tix">${(s.tickets||[]).map(t => `<span>${esc(t)}</span>`).join("")}</span>
@@ -109,21 +126,31 @@ function cardHtml(s) {
       ${s.pid ? `<span>pid ${s.pid}</span>` : ""}
       ${s.costUsd != null ? `<span>US$${s.costUsd.toFixed(2)}</span>` : ""}
       <button data-copy="${esc(`claude --resume ${s.sessionId}`)}" title="Copy resume command">copy resume</button>
+      ${canReply(s) ? `<button data-reply title="Type a reply into this session's terminal">reply</button>` : ""}
     </div>`;
 }
 
-// Returns the card element for a session, replacing it only when its content changed.
+// Returns the card element for a session, re-rendering its body only when its content changed.
 function cardFor(s) {
   const html = cardHtml(s);
   let entry = cards.get(s.sessionId);
-  if (entry && entry.html === html) return entry.el;
-  const el = document.createElement("article");
-  el.className = "card";
-  el.dataset.id = s.sessionId;
-  el.innerHTML = html;
-  if (entry) entry.el.replaceWith(el);
-  cards.set(s.sessionId, { el, html });
-  return el;
+  if (!entry) {
+    const el = document.createElement("article");
+    el.className = "card";
+    el.dataset.id = s.sessionId;
+    el.innerHTML = `<div class="body"></div>
+      <div class="note" hidden></div>
+      <div class="composer" hidden>
+        <textarea placeholder="Reply to this session" aria-label="Reply"></textarea>
+        <div class="row"><span class="err"></span><span class="hint">Cmd+Enter</span><button class="send">Send</button></div>
+      </div>`;
+    entry = { el, body: el.querySelector(".body"), composer: el.querySelector(".composer"), html: null };
+    cards.set(s.sessionId, entry);
+  }
+  entry.el.style.setProperty("--c", COLOUR[s.attention]);
+  if (entry.html !== html) { entry.body.innerHTML = html; entry.html = html; }
+  entry.composer.hidden = !(canReply(s) && openComposers.has(s.sessionId));
+  return entry.el;
 }
 
 function render() {
@@ -134,6 +161,8 @@ function render() {
   const all = [...data.live, ...(showClosed ? data.closed : [])];
   const seen = new Set();
   // Replacing or moving a card resets the scroll of its expanded reply, so record and restore it.
+  const active = document.activeElement;
+  const caret = active?.tagName === "TEXTAREA" ? [active.selectionStart, active.selectionEnd, active.scrollTop] : null;
   const replyScroll = new Map();
   for (const [id, { el }] of cards) { const pre = el.querySelector("details[open] pre"); if (pre) replyScroll.set(id, pre.scrollTop); }
 
@@ -159,6 +188,10 @@ function render() {
   }
   for (const [id, entry] of cards) if (!seen.has(id)) { entry.el.remove(); cards.delete(id); }
   for (const [id, top] of replyScroll) { const pre = cards.get(id)?.el.querySelector("details[open] pre"); if (pre) pre.scrollTop = top; }
+  // Moving a card between columns drops focus from its reply box; put it back.
+  if (caret && active.isConnected && document.activeElement !== active) {
+    active.focus({ preventScroll:true }); active.setSelectionRange(caret[0], caret[1]); active.scrollTop = caret[2];
+  }
 
   const count = k => data.live.filter(s => s.attention === k).length;
   document.getElementById("counts").textContent =
@@ -197,7 +230,61 @@ async function refresh() {
     render();
   } catch (e) { document.getElementById("updated").textContent = "server not reachable"; }
 }
+async function sendReply(id) {
+  const entry = cards.get(id);
+  if (!entry) return;
+  const box = entry.composer.querySelector("textarea"), btn = entry.composer.querySelector(".send"), err = entry.composer.querySelector(".err");
+  if (!box.value.trim() || btn.disabled) return;
+  btn.disabled = true; err.textContent = "sending…";
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/prompt`, {
+      method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify({ text: box.value }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) { box.value = ""; err.textContent = ""; openComposers.delete(id); entry.composer.hidden = true; refresh(); }
+    else err.textContent = j.error || `failed (${r.status})`;
+  } catch { err.textContent = "server not reachable"; }
+  finally { btn.disabled = false; }
+}
+board.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault(); sendReply(e.target.closest(".card").dataset.id);
+  }
+});
+async function closeSession(id, button) {
+  const s = findSession(id), entry = cards.get(id);
+  if (!s || !entry) return;
+  const note = entry.el.querySelector(".note");
+  let confirmed = false;
+  if (s.attention !== "idle") {
+    const state = s.attention === "working" ? "still working" : "waiting on you";
+    if (!confirm(`Close ${s.name || "this session"}? It is ${state}.\n\nIts Claude process will be stopped and its Terminal window closed. You can resume it from the closed column.`)) return;
+    confirmed = true;
+  }
+  button.disabled = true; note.hidden = true;
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/close`, {
+      method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify({ confirmed }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) {
+      document.getElementById("notice").textContent = `Closed ${s.name || "session"}: ${j.window}.`;
+      document.getElementById("showClosed").checked = true;
+      await refresh();
+    } else { note.textContent = j.error || `failed (${r.status})`; note.hidden = false; }
+  } catch { note.textContent = "server not reachable"; note.hidden = false; }
+  finally { button.disabled = false; }
+}
 document.addEventListener("click", e => {
+  const card = e.target.closest?.(".card");
+  if (card && e.target.matches("[data-close]")) { closeSession(card.dataset.id, e.target); return; }
+  if (card && e.target.matches("[data-reply]")) {
+    const entry = cards.get(card.dataset.id);
+    const open = entry.composer.hidden;
+    open ? openComposers.add(card.dataset.id) : openComposers.delete(card.dataset.id);
+    entry.composer.hidden = !open;
+    if (open) entry.composer.querySelector("textarea").focus();
+    return;
+  }
+  if (card && e.target.matches(".send")) { sendReply(card.dataset.id); return; }
   const v = e.target.dataset?.copy;
   if (v) { navigator.clipboard.writeText(v); e.target.textContent = "copied"; setTimeout(() => e.target.textContent = "copy resume", 1200); }
 });
