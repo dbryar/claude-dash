@@ -40,6 +40,8 @@ Sending a reply makes a Claude Code session act with your permissions, and closi
 
 Neither file is a documented interface. They're Claude Code's own internal state, so a Claude Code release can change them and break the dashboard. It was built against Claude Code 2.1.325.
 
+What that means in practice, measured on 2.1.220: the cost on each card comes from a record that version doesn't write, so no cost is shown. The session registry also has a third status, `shell`, that the dashboard doesn't know about, so a session you've shelled out of looks idle and its reply button is refused. Both are listed in [`design/README.md`](design/README.md).
+
 Three pieces run on macOS:
 
 - `server.ts` is a [Bun](https://bun.sh) server with five routes: `/` for the dashboard, `/api/sessions` for the data as JSON, `POST /api/sessions/<id>/prompt` for sending a reply, `POST /api/sessions/<id>/close` for closing a session, and `/healthz` for health. `/healthz` reports the process id, the start time and a hash of the code and `.env` the process loaded.
@@ -77,7 +79,7 @@ Settings go in `.env`, which git ignores. `.env.example` lists them:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `TICKET_PREFIXES` | any `ABC-123` key | Comma-separated ticket prefixes to show on cards, e.g. `ABC,OPS`. A prefix matches with or without a hyphen, so `OPS` matches both `OPS-12` and `OPS0012345`. |
+| `TICKET_PREFIXES` | any `ABC-123` key | Comma-separated ticket prefixes to show on cards, e.g. `ABC,OPS`. A prefix matches with or without a hyphen, so `OPS` matches both `OPS-12` and `OPS0012345`. Left unset, any Jira-shaped key matches except a stop list of prefixes that aren't ticket systems, so `SHA-256` and `RFC-2119` aren't shown as tickets. Setting this turns the stop list off. |
 | `SESSION_BOARD_PORT` | `7377` | Port to listen on |
 | `SESSION_BOARD_RECENT_DAYS` | `7` | How far back the closed list goes |
 

@@ -21,9 +21,15 @@ const RECENT_DAYS = Number(process.env.SESSION_BOARD_RECENT_DAYS ?? 7);
 // (see .env.example). Unset, any Jira-style key (ABC-123) matches.
 const PREFIXES = (process.env.TICKET_PREFIXES ?? "")
   .split(",").map((p) => p.trim()).filter((p) => /^[A-Za-z][A-Za-z0-9]*$/.test(p));
+// Ordinary technical writing is full of Jira-shaped strings (SHA-256, UTF-8, RFC-2119), so the
+// default pattern skips prefixes known not to be ticket systems. An explicit TICKET_PREFIXES
+// names the user's own systems and is trusted as given. See design/concepts/configuration.md.
+const NOT_TICKETS = /^(?:SHA|UTF|ISO|RFC|AES|RSA|UTC|GMT|HTTP|TLS|SSL|IPV|CVE|COVID)$/;
 const TICKET_RE = PREFIXES.length
   ? new RegExp(`\\b(?:${PREFIXES.join("|")})-?\\d{2,}\\b`, "g")
   : /\b[A-Z][A-Z0-9]{1,9}-\d+\b/g;
+const isTicket = (key: string) =>
+  PREFIXES.length > 0 || !NOT_TICKETS.test(key.slice(0, key.indexOf("-")));
 
 type Digest = {
   title?: string;
@@ -84,7 +90,7 @@ function digest(path: string): Digest {
         const t = textOf(c);
         if (!o.isMeta && !isNoise(t)) {
           if (!d.firstPrompt) d.firstPrompt = t.slice(0, 300);
-          for (const m of t.match(TICKET_RE) ?? []) { tickets.delete(m); tickets.add(m); }
+          for (const m of t.match(TICKET_RE) ?? []) if (isTicket(m)) { tickets.delete(m); tickets.add(m); }
         }
         break;
       }
@@ -101,7 +107,7 @@ function digest(path: string): Digest {
       }
     }
   }
-  if (d.title) for (const m of d.title.match(TICKET_RE) ?? []) { tickets.delete(m); tickets.add(m); }
+  if (d.title) for (const m of d.title.match(TICKET_RE) ?? []) if (isTicket(m)) { tickets.delete(m); tickets.add(m); }
   d.pendingTool = lastToolUse?.name;
   d.tickets = [...tickets].reverse().slice(0, 4); // most recently mentioned first
   cache.set(path, { key, digest: d });
@@ -119,6 +125,84 @@ function alive(pid: number) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+// What ps knows about each pid, from one call: when the process really started, and its
+// command. A pid ps says nothing about is absent from the map.
+type ProcInfo = { start?: number; comm?: string };
+function procInfo(pids: number[]): Map<number, ProcInfo> {
+  const out = new Map<number, ProcInfo>();
+  if (!pids.length) return out;
+  const r = Bun.spawnSync(["ps", "-o", "pid=,etime=,comm=", "-p", pids.join(",")]);
+  const now = Date.now() / 1000;
+  for (const line of r.stdout.toString().split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\S+)\s+(\S.*)$/);
+    if (!m) continue;
+    const el = elapsedSeconds(m[2]);
+    out.set(Number(m[1]), { start: el === undefined ? undefined : now - el, comm: m[3].trim() });
+  }
+  return out;
+}
+
+// ps reports elapsed time as [[dd-]hh:]mm:ss.
+function elapsedSeconds(etime: string): number | undefined {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(etime);
+  if (!m) return;
+  return Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]);
+}
+
+// The registry records procStart in UTC, e.g. "Fri Oct 23 13:02:22 2026".
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function parseProcStart(v: unknown): number | undefined {
+  if (typeof v !== "string") return;
+  const m = /^\w{3}\s+(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})$/.exec(v.trim());
+  if (!m) return;
+  const mon = MONTHS.indexOf(m[1]);
+  if (mon < 0) return;
+  return Date.UTC(Number(m[6]), mon, Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5])) / 1000;
+}
+
+// Signal 0 only proves that some process the user may signal holds the pid. A registry file left
+// by a session that did not exit cleanly keeps its pid, the system reuses it, and the dead
+// session reads as live: an entry from September held a pid belonging to Terminal.app.
+// Identity is checked against the process start time the registry recorded, which is exact and
+// independent of the process's name. The name cannot carry this: Claude Code rewrites it, so a
+// background job reports "claude bg-spare" and ucomm reports the version string, and requiring
+// the name to be "claude" hid real sessions. The name is only a fallback for an entry with no
+// usable procStart, and when neither can be determined the session is kept -- hiding a live
+// session loses the tab the dashboard exists to find, while showing a dead one costs a glance.
+const SAME_PROCESS_TOLERANCE_S = 5;
+function isSameProcess(s: any, info: ProcInfo | undefined): boolean {
+  if (!info) return true;
+  const recorded = parseProcStart(s?.procStart);
+  if (recorded !== undefined && info.start !== undefined)
+    return Math.abs(info.start - recorded) <= SAME_PROCESS_TOLERANCE_S;
+  if (info.comm) return basename(info.comm.split(/\s+/)[0]) === "claude";
+  return true;
+}
+
+function registryEntries(): any[] {
+  const out: any[] = [];
+  for (const f of readdirSync(SESSIONS).filter((f) => f.endsWith(".json"))) {
+    try { out.push(JSON.parse(readFileSync(join(SESSIONS, f), "utf8"))); } catch {}
+  }
+  return out;
+}
+
+// The live sessions, one entry per session id. `claude --resume` starts a new process for an
+// existing session id, so a session can have two registry entries and both can be live; the
+// later startedAt is the process running now. The dashboard keys cards by session id, so
+// returning both would collapse them into one card and hide a session.
+function liveEntries(): any[] {
+  const running = registryEntries().filter((s) => s?.sessionId && s.pid && alive(s.pid));
+  const procs = procInfo(running.map((s) => s.pid));
+  const newest = new Map<string, any>();
+  for (const s of running) {
+    if (!isSameProcess(s, procs.get(s.pid))) continue;
+    const prev = newest.get(s.sessionId);
+    if (!prev || (s.startedAt ?? 0) > (prev.startedAt ?? 0)) newest.set(s.sessionId, s);
+  }
+  return [...newest.values()];
+}
+
 function attention(status: string, d: Digest, live: boolean): string {
   if (!live) return "closed";
   if (status === "busy" && d.pendingTool) return "working"; // the registry only records idle/busy, so a permission prompt also reads as busy
@@ -131,10 +215,7 @@ function attention(status: string, d: Digest, live: boolean): string {
 function collect() {
   const live: any[] = [];
   const liveIds = new Set<string>();
-  for (const f of readdirSync(SESSIONS).filter((f) => f.endsWith(".json"))) {
-    let s: any;
-    try { s = JSON.parse(readFileSync(join(SESSIONS, f), "utf8")); } catch { continue; }
-    if (!alive(s.pid)) continue;
+  for (const s of liveEntries()) {
     const tp = findTranscript(s.sessionId);
     const d = tp ? digest(tp) : { tickets: [] };
     liveIds.add(s.sessionId);
@@ -142,7 +223,11 @@ function collect() {
       live: true, name: s.name, pid: s.pid, kind: s.kind, status: s.status,
       cwd: s.cwd, repo: basename(s.cwd), sessionId: s.sessionId,
       startedAt: s.startedAt, statusSince: s.statusUpdatedAt,
-      attention: attention(s.status, d as Digest, true), ...d,
+      attention: attention(s.status, d as Digest, true),
+      // Owned by prompt delivery, not inferred from the label: the registry has statuses
+      // beyond idle and busy (`shell`), and those are labelled idle but cannot be replied to.
+      canReply: s.status === "idle",
+      ...d,
     });
   }
 
@@ -185,13 +270,10 @@ function cleanPrompt(text: string) {
   return text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "").trim();
 }
 
+// Resolved the same way the dashboard lists sessions, so what a card shows and what receives
+// a reply (or a close) cannot disagree. See design/concepts/prompt-delivery.md.
 function liveSession(id: string) {
-  for (const f of readdirSync(SESSIONS).filter((f) => f.endsWith(".json"))) {
-    try {
-      const s = JSON.parse(readFileSync(join(SESSIONS, f), "utf8"));
-      if (s.sessionId === id && alive(s.pid)) return s;
-    } catch {}
-  }
+  return liveEntries().find((s) => s.sessionId === id);
 }
 
 async function run(cmd: string[]) {
@@ -251,8 +333,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function closeSession(id: string, confirmed: boolean): Promise<[number, string | null, string?]> {
   const s = liveSession(id);
   if (!s) return [404, "no running session with that id"];
-  const comm = (await run(["ps", "-o", "comm=", "-p", String(s.pid)])).out;
-  if (basename(comm) !== "claude") return [422, `process ${s.pid} is not a Claude Code process`];
+  if (!isSameProcess(s, procInfo([s.pid]).get(s.pid)))
+    return [422, `process ${s.pid} is not this session's Claude Code process`];
   const tp = findTranscript(id);
   const label = attention(s.status, tp ? digest(tp) : { tickets: [] }, true);
   if (label !== "idle" && !confirmed)

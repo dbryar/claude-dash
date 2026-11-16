@@ -44,7 +44,9 @@ flowchart LR
     closing["Session closing"]
     terminal["macOS Terminal<br/>(external)"]
 
-    discovery -.->|"reads registry and transcripts"| cc
+    discovery -.->|"reads registry and transcripts, checks each pid is a claude process"| cc
+    delivery -->|"resolves a session id to its live entry"| discovery
+    closing -->|"resolves a session id to its live entry"| discovery
     digest -.->|"reads transcript lines"| cc
     discovery -->|"asks for a digest per transcript"| digest
     discovery -->|"passes status and digest"| attention
@@ -82,3 +84,13 @@ Dotted edges cross the boundary of this repository.
 | Terminal scripting | macOS Terminal | Typing a prompt into a session's tab; needs your permission for the server to control Terminal |
 
 Both Claude Code sources are internal state, not a published interface. The design was written against Claude Code 2.1.325.
+
+Where a version has been observed to differ, the concept records it rather than the design assuming one version. Measured 16-11-2026 against both versions installed that day:
+
+| Observation | Versions | Concept | Effect |
+| --- | --- | --- | --- |
+| `cost-state` records absent | 2.1.220 | [Transcript digest](concepts/transcript-digest.md) | No cost is shown on any card |
+| `cost-state` records present, carrying `totalCostUSD` and a `modelUsage` breakdown | 2.1.325 | [Transcript digest](concepts/transcript-digest.md) | Cost is shown; a recorded zero shows as `US$0.00`, an absent record shows nothing |
+| Registry `status` can be `shell`, not just `idle` or `busy` | 2.1.220 | [Attention classification](concepts/attention-classification.md) | Such a session is labelled idle; it is no longer offered a reply box |
+| The process name is rewritten: a background job reports `claude bg-spare`, and `ps -o ucomm=` reports the version string | 2.1.220, 2.1.325 | [Session discovery](concepts/session-discovery.md) | Session identity is checked against `procStart`, never the process name |
+| One transcript can hold records from several versions when a session is resumed across an upgrade | 2.1.220 + 2.1.325 | [Transcript digest](concepts/transcript-digest.md) | A record's presence is a property of the record, not of the installed version |

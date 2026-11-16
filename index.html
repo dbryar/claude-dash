@@ -99,7 +99,9 @@ const openComposers = new Set();
 // sessionId -> { el, body, composer, html }. The element lives as long as the session; only
 // its body is re-rendered, so the composer (and anything typed in it) is never rebuilt.
 const cards = new Map();
-const canReply = s => s.live && (s.attention === "asked you" || s.attention === "idle");
+// Published by the server, which owns the condition; a status of `shell` is labelled idle but
+// cannot be replied to, so the column must not decide this. See design/concepts/prompt-delivery.md.
+const canReply = s => s.live && s.canReply === true;
 
 const board = document.getElementById("board");
 const tabs = document.getElementById("tabs");
@@ -124,6 +126,7 @@ function cardHtml(s) {
       <span>last activity ${ago(s.lastAt)}</span>
       ${s.startedAt ? `<span>started ${when(s.startedAt)}</span>` : ""}
       ${s.pid ? `<span>pid ${s.pid}</span>` : ""}
+      ${s.live && s.status && s.status !== "idle" && s.status !== "busy" ? `<span>status ${esc(s.status)}</span>` : ""}
       ${s.costUsd != null ? `<span>US$${s.costUsd.toFixed(2)}</span>` : ""}
       <button data-copy="${esc(`claude --resume ${s.sessionId}`)}" title="Copy resume command">copy resume</button>
       ${canReply(s) ? `<button data-reply title="Type a reply into this session's terminal">reply</button>` : ""}
