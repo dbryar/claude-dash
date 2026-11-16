@@ -21,9 +21,15 @@ const RECENT_DAYS = Number(process.env.SESSION_BOARD_RECENT_DAYS ?? 7);
 // (see .env.example). Unset, any Jira-style key (ABC-123) matches.
 const PREFIXES = (process.env.TICKET_PREFIXES ?? "")
   .split(",").map((p) => p.trim()).filter((p) => /^[A-Za-z][A-Za-z0-9]*$/.test(p));
+// Ordinary technical writing is full of Jira-shaped strings (SHA-256, UTF-8, RFC-2119), so the
+// default pattern skips prefixes known not to be ticket systems. An explicit TICKET_PREFIXES
+// names the user's own systems and is trusted as given. See design/concepts/configuration.md.
+const NOT_TICKETS = /^(?:SHA|UTF|ISO|RFC|AES|RSA|UTC|GMT|HTTP|TLS|SSL|IPV|CVE|COVID)$/;
 const TICKET_RE = PREFIXES.length
   ? new RegExp(`\\b(?:${PREFIXES.join("|")})-?\\d{2,}\\b`, "g")
   : /\b[A-Z][A-Z0-9]{1,9}-\d+\b/g;
+const isTicket = (key: string) =>
+  PREFIXES.length > 0 || !NOT_TICKETS.test(key.slice(0, key.indexOf("-")));
 
 type Digest = {
   title?: string;
@@ -84,7 +90,7 @@ function digest(path: string): Digest {
         const t = textOf(c);
         if (!o.isMeta && !isNoise(t)) {
           if (!d.firstPrompt) d.firstPrompt = t.slice(0, 300);
-          for (const m of t.match(TICKET_RE) ?? []) { tickets.delete(m); tickets.add(m); }
+          for (const m of t.match(TICKET_RE) ?? []) if (isTicket(m)) { tickets.delete(m); tickets.add(m); }
         }
         break;
       }
@@ -101,7 +107,7 @@ function digest(path: string): Digest {
       }
     }
   }
-  if (d.title) for (const m of d.title.match(TICKET_RE) ?? []) { tickets.delete(m); tickets.add(m); }
+  if (d.title) for (const m of d.title.match(TICKET_RE) ?? []) if (isTicket(m)) { tickets.delete(m); tickets.add(m); }
   d.pendingTool = lastToolUse?.name;
   d.tickets = [...tickets].reverse().slice(0, 4); // most recently mentioned first
   cache.set(path, { key, digest: d });
