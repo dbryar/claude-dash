@@ -14,11 +14,11 @@ Claude Code already writes a short AI title for each session and a "while you we
 
 Open sessions are grouped by what they need from you:
 
-- **Waiting on you**: the session is idle and its last reply ended with a question.
+- **Waiting on you**: the session is idle and the last paragraph of its last reply asks you something, either as a question or with a request such as "let me know" or "needs your approval".
 - **Working**: the session is busy.
 - **Idle**: the session is idle and isn't asking anything.
 
-Each card shows the session name and repository, the AI title, the latest away summary, the last thing you asked, the ticket keys it mentions most recently, how long since anything happened, the cost so far, and the last reply (expandable). The page refreshes every 5 seconds and the filter box searches across all of it, so typing a ticket key finds every tab working on that ticket.
+Each card shows the session name and repository, the AI title (hover or tap it for the latest away summary), the last thing you asked, the ticket keys it mentions most recently, how long since anything happened, the cost so far, and the last reply (expandable, formatted as Markdown, or as raw text with the "formatted replies" toggle off). The page refreshes every 5 seconds and the filter box searches across all of it, so typing a ticket key finds every tab working on that ticket.
 
 Each waiting or idle card has a **reply** button. Type the next prompt there and press **Send** (or Cmd+Enter), and the dashboard types it into that session's Terminal tab and submits it, exactly as if you had typed it in the tab yourself. The reply box keeps what you've written through refreshes. A busy session can't be sent to until it's idle again.
 
@@ -102,7 +102,7 @@ The code is built against the design in [`design/`](design/README.md): one file 
 
 ## Limitations
 
-- "Waiting on you" is a guess: it means the last reply ended with a question mark.
+- "Waiting on you" is a guess: it means the last paragraph of the last reply contains a question or one of a short list of English request phrases. A reply that asks for something in other words shows as idle.
 - A session stopped at a tool approval prompt shows as "Working", because the session registry only records idle or busy.
 - Replies only work for sessions running in macOS Terminal. Sessions in iTerm2, tmux or an editor's terminal show the reply button but are refused with a message saying so.
 - Closing only closes the window when the session's tab is the window's only tab. In a window with several tabs it types `exit` into the shell, and the tab closes only if your Terminal profile closes tabs when the shell exits. A window still running something else after Claude stops is left open.

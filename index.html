@@ -52,7 +52,12 @@
   .name { font-weight:600 }
   .tix span { font-size:11px; padding:1px 6px; border-radius:4px; background:var(--col); margin-right:4px }
   .title { font-size:15px; font-weight:600; margin:6px 0 4px; overflow-wrap:anywhere }
-  .away { margin:4px 0; overflow-wrap:anywhere }
+  /* Away summary: a hint on the title, on hover, or on focus/tap where there is no pointer. */
+  .title.hint { cursor:help; text-decoration:underline dotted var(--muted); text-underline-offset:3px; outline:none }
+  .tip { display:none; position:absolute; left:8px; right:8px; z-index:5; margin-top:6px; padding:8px 10px; border-radius:6px;
+         background:var(--ink); color:var(--bg); font:400 13px/1.4 -apple-system, system-ui, sans-serif; box-shadow:0 4px 14px rgba(0,0,0,.25) }
+  .tip .age { opacity:.7 }
+  .title.hint:hover .tip, .title.hint:focus .tip { display:block }
   .prompt { color:var(--muted); font-size:13px; margin:4px 0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
   .meta { display:flex; gap:4px 12px; color:var(--muted); font-size:12px; margin-top:8px; flex-wrap:wrap; align-items:center }
   .meta button { font:12px ui-monospace, monospace; border:1px solid var(--line); background:transparent; color:var(--ink); border-radius:5px; padding:2px 8px; cursor:pointer }
@@ -64,7 +69,22 @@
   .composer .hint { color:var(--muted); font-size:11px }
   .composer button { border:1px solid var(--c); background:var(--c); color:#fff; border-radius:5px; padding:3px 12px; font:600 12px system-ui, sans-serif; cursor:pointer }
   .composer button:disabled { opacity:.5; cursor:default }
-  details pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; max-height:260px; overflow:auto }
+  .reply { font-size:13px; max-height:320px; overflow:auto; overflow-wrap:anywhere; margin:6px 0 0 }
+  pre.reply { white-space:pre-wrap; font-size:12px }
+  .md > :first-child { margin-top:0 } .md > :last-child { margin-bottom:0 }
+  .md p, .md ul, .md ol, .md pre, .md table, .md blockquote { margin:0 0 8px }
+  .md ul, .md ol { padding-left:20px } .md li > ul, .md li > ol { margin:2px 0 }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin:10px 0 4px; line-height:1.3 }
+  .md h1 { font-size:16px } .md h2 { font-size:15px } .md h3 { font-size:14px } .md h4, .md h5, .md h6 { font-size:13px }
+  .md code { font:12px ui-monospace, monospace; background:var(--col); padding:1px 4px; border-radius:4px }
+  .md pre { background:var(--col); padding:8px; border-radius:6px; overflow-x:auto }
+  .md pre code { background:none; padding:0; white-space:pre }
+  .md blockquote { border-left:3px solid var(--line); padding-left:10px; color:var(--muted) }
+  .md table { border-collapse:collapse; display:block; overflow-x:auto; font-size:12px }
+  .md th, .md td { border:1px solid var(--line); padding:3px 6px; text-align:left; vertical-align:top }
+  .md th { background:var(--col) }
+  .md hr { border:0; border-top:1px solid var(--line); margin:8px 0 }
+  .md a { color:var(--work) }
 </style>
 </head>
 <body>
@@ -73,6 +93,7 @@
   <span id="counts" class="muted"></span>
   <input id="q" type="search" placeholder="Filter by name, repo, ticket, text" autocomplete="off">
   <label class="muted"><input type="checkbox" id="showClosed"> show recently closed</label>
+  <label class="muted"><input type="checkbox" id="mdOn" checked> formatted replies</label>
   <span id="updated" class="muted"></span>
   <span id="notice"></span>
 </header>
@@ -90,6 +111,83 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 const ago = t => { if (!t) return ""; const s = (Date.now() - new Date(t)) / 1000;
   if (s < 90) return Math.round(s) + "s ago"; if (s < 5400) return Math.round(s/60) + " min ago";
   if (s < 172800) return Math.round(s/3600) + " h ago"; return Math.round(s/86400) + " d ago"; };
+// Last replies are Markdown. Every piece of text is escaped before any tag is added, so nothing in
+// a reply becomes live HTML. See design/concepts/dashboard-ui.md, criteria 22 to 25.
+const MD_BLOCK = /^\s*(```|#{1,6}\s|>|([-*+]|\d+[.)])\s|\|.*\|\s*$|([-*_])(\s*\3){2,}\s*$)/;
+function mdInline(t) {
+  const codes = [];
+  t = esc(t).replace(/`([^`]+)`/g, (_, c) => `${codes.push(c) - 1}`);
+  t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+       .replace(/\*\*(?=\S)(.+?)\*\*/g, "<strong>$1</strong>").replace(/__(?=\S)(.+?)__/g, "<strong>$1</strong>")
+       .replace(/(^|[^*\w])\*(?=\S)(.+?)\*(?!\w)/g, "$1<em>$2</em>").replace(/(^|[^_\w])_(?=\S)(.+?)_(?!\w)/g, "$1<em>$2</em>")
+       .replace(/~~(?=\S)(.+?)~~/g, "<del>$1</del>");
+  return t.replace(/(\d+)/g, (_, n) => `<code>${codes[n]}</code>`);
+}
+function md(src) {
+  const lines = src.split("\n"), out = [];
+  const cells = l => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  let i = 0, m;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (!l.trim()) { i++; continue; }
+    if (/^\s*```/.test(l)) {
+      const buf = []; i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+      i++; out.push(`<pre><code>${esc(buf.join("\n"))}</code></pre>`); continue;
+    }
+    if ((m = l.match(/^\s*(#{1,6})\s+(.*?)\s*#*\s*$/))) { out.push(`<h${m[1].length}>${mdInline(m[2])}</h${m[1].length}>`); i++; continue; }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) { out.push("<hr>"); i++; continue; }
+    if (/^\s*\|.*\|\s*$/.test(l) && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1] ?? "")) {
+      let h = `<table><thead><tr>${cells(l).map(c => `<th>${mdInline(c)}</th>`).join("")}</tr></thead><tbody>`;
+      i += 2;
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) h += `<tr>${cells(lines[i++]).map(c => `<td>${mdInline(c)}</td>`).join("")}</tr>`;
+      out.push(h + "</tbody></table>"); continue;
+    }
+    if (/^\s*>/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*> ?/, ""));
+      out.push(`<blockquote>${md(buf.join("\n"))}</blockquote>`); continue;
+    }
+    if (/^\s*([-*+]|\d+[.)])\s+/.test(l)) {
+      const stack = []; let h = "";
+      while (i < lines.length) {
+        const li = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+        if (!li) {
+          if (stack.length && /^\s{2,}\S/.test(lines[i])) { h += " " + mdInline(lines[i++].trim()); continue; }
+          break;
+        }
+        const ind = li[1].length, ol = /\d/.test(li[2]), tag = ol ? "ol" : "ul";
+        while (stack.length && ind < stack.at(-1).ind) h += `</li></${stack.pop().tag}>`;
+        // A bulleted list followed by a numbered one at the same depth is two lists.
+        if (stack.length && ind === stack.at(-1).ind && stack.at(-1).tag !== tag) h += `</li></${stack.pop().tag}>`;
+        if (!stack.length || ind > stack.at(-1).ind) {
+          stack.push({ ind, tag });
+          h += ol && parseInt(li[2]) !== 1 ? `<ol start="${parseInt(li[2])}"><li>` : `<${tag}><li>`;
+        } else h += "</li><li>";
+        h += mdInline(li[3]); i++;
+      }
+      while (stack.length) h += `</li></${stack.pop().tag}>`;
+      out.push(h); continue;
+    }
+    const buf = [l.trim()]; i++;
+    while (i < lines.length && lines[i].trim() && !MD_BLOCK.test(lines[i])) buf.push(lines[i++].trim());
+    out.push(`<p>${buf.map(mdInline).join("<br>")}</p>`);
+  }
+  return out.join("");
+}
+// The last 3,000 characters, starting at a line, and still inside a code block if the cut fell in one.
+function replyTail(s) {
+  s = s.replace(/\r\n?/g, "\n").trim();
+  if (s.length <= 3000) return s;
+  let t = s.slice(-3000); t = t.slice(t.indexOf("\n") + 1);
+  if ((t.match(/^\s*```/gm) || []).length % 2) t = "```\n" + t;
+  return "…\n" + t;
+}
+let mdOn = true;
+try { mdOn = localStorage.getItem("sessionBoard.md") !== "off"; } catch {}
+document.getElementById("mdOn").checked = mdOn;
+const replyHtml = s => mdOn ? `<div class="reply md">${md(replyTail(s))}</div>` : `<pre class="reply">${esc(replyTail(s))}</pre>`;
+
 const when = t => t ? new Date(t).toLocaleString("en-AU", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false }).replace(/\//g,"-").replace(",", "") : "";
 
 let data = { live:[], closed:[] };
@@ -118,10 +216,11 @@ function cardHtml(s) {
       <span class="muted">${esc(s.repo)}</span>
       <span class="tix">${(s.tickets||[]).map(t => `<span>${esc(t)}</span>`).join("")}</span>
     </div>
-    <div class="title">${esc(s.title || s.firstPrompt || "(untitled)")}</div>
-    ${s.away ? `<div class="away">${esc(s.away)} <span class="muted">(${ago(s.awayAt)})</span></div>` : ""}
+    ${s.away
+      ? `<div class="title hint" tabindex="0">${esc(s.title || s.firstPrompt || "(untitled)")}<div class="tip">${esc(s.away)} <span class="age">(${ago(s.awayAt)})</span></div></div>`
+      : `<div class="title">${esc(s.title || s.firstPrompt || "(untitled)")}</div>`}
     ${s.lastPrompt ? `<div class="prompt">You last asked: ${esc(s.lastPrompt)}</div>` : ""}
-    ${s.lastAssistant ? `<details${openReplies.has(s.sessionId) ? " open" : ""}><summary>Last reply</summary><pre>${esc(s.lastAssistant.slice(-3000))}</pre></details>` : ""}
+    ${s.lastAssistant ? `<details${openReplies.has(s.sessionId) ? " open" : ""}><summary>Last reply</summary>${replyHtml(s.lastAssistant)}</details>` : ""}
     <div class="meta">
       <span>last activity ${ago(s.lastAt)}</span>
       ${s.startedAt ? `<span>started ${when(s.startedAt)}</span>` : ""}
@@ -166,8 +265,10 @@ function render() {
   // Replacing or moving a card resets the scroll of its expanded reply, so record and restore it.
   const active = document.activeElement;
   const caret = active?.tagName === "TEXTAREA" ? [active.selectionStart, active.selectionEnd, active.scrollTop] : null;
+  // A tapped title shows its away summary while it has focus; keep that across a re-render.
+  const hintCard = active?.matches?.(".title.hint") ? active.closest(".card")?.dataset.id : null;
   const replyScroll = new Map();
-  for (const [id, { el }] of cards) { const pre = el.querySelector("details[open] pre"); if (pre) replyScroll.set(id, pre.scrollTop); }
+  for (const [id, { el }] of cards) { const pre = el.querySelector("details[open] .reply"); if (pre) replyScroll.set(id, pre.scrollTop); }
 
   for (const c of COLUMNS) {
     const col = colEl(c.key), tab = tabs.querySelector(`[data-key="${CSS.escape(c.key)}"]`);
@@ -190,11 +291,13 @@ function render() {
     tab.textContent = `${c.label} ${n}`;
   }
   for (const [id, entry] of cards) if (!seen.has(id)) { entry.el.remove(); cards.delete(id); }
-  for (const [id, top] of replyScroll) { const pre = cards.get(id)?.el.querySelector("details[open] pre"); if (pre) pre.scrollTop = top; }
+  for (const [id, top] of replyScroll) { const pre = cards.get(id)?.el.querySelector("details[open] .reply"); if (pre) pre.scrollTop = top; }
   // Moving a card between columns drops focus from its reply box; put it back.
   if (caret && active.isConnected && document.activeElement !== active) {
     active.focus({ preventScroll:true }); active.setSelectionRange(caret[0], caret[1]); active.scrollTop = caret[2];
   }
+
+  if (hintCard) cards.get(hintCard)?.el.querySelector(".title.hint")?.focus({ preventScroll:true });
 
   const count = k => data.live.filter(s => s.attention === k).length;
   document.getElementById("counts").textContent =
@@ -293,6 +396,11 @@ document.addEventListener("click", e => {
 });
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("showClosed").addEventListener("change", render);
+document.getElementById("mdOn").addEventListener("change", e => {
+  mdOn = e.target.checked;
+  try { localStorage.setItem("sessionBoard.md", mdOn ? "on" : "off"); } catch {}
+  render();
+});
 window.addEventListener("resize", markTab);
 refresh(); setInterval(refresh, 5000);
 </script>

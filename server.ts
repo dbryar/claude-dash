@@ -207,9 +207,27 @@ function attention(status: string, d: Digest, live: boolean): string {
   if (!live) return "closed";
   if (status === "busy" && d.pendingTool) return "working"; // the registry only records idle/busy, so a permission prompt also reads as busy
   if (status === "busy") return "working";
-  const tail = (d.lastAssistant ?? "").trim();
-  if (/\?\s*$/.test(tail) || /\?\s*\S{0,3}$/.test(tail.slice(-40))) return "asked you";
-  return "idle";
+  return asksYou(d.lastAssistant) ? "asked you" : "idle";
+}
+
+// Replies that need you often end with a statement, so read the whole last paragraph for a
+// question or a request phrase. See design/concepts/attention-classification.md, criteria 3 and 3a.
+const QUESTION_RE = /\?["'`)\]*_]{0,3}(\s|$)/;
+const REQUEST_RE = new RegExp([
+  "let me know", "shall i", "should i", "do you want", "would you like", "want me to",
+  "your approval", "your go-ahead", "your call", "your decision", "your confirmation",
+  "waiting on you", "waiting for you", "waiting for your", "needs your", "need your", "once you",
+  "please confirm", "please approve", "please review", "please check", "please run",
+].map(p => `\\b${p}\\b`).join("|") + "|`!", "i");
+
+function lastParagraph(text = "") {
+  const t = text.trim();
+  return t.slice(t.lastIndexOf("\n\n") + 1).slice(-600);
+}
+
+function asksYou(text?: string) {
+  const p = lastParagraph(text);
+  return QUESTION_RE.test(p) || REQUEST_RE.test(p);
 }
 
 function collect() {
