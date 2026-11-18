@@ -14,13 +14,15 @@ Claude Code already writes a short AI title for each session and a "while you we
 
 Open sessions are grouped by what they need from you:
 
-- **Waiting on you**: the session is idle and the last paragraph of its last reply asks you something, either as a question or with a request such as "let me know" or "needs your approval".
+- **Waiting on you**: Claude Code says the session is waiting on you (a question it asked with options, a permission prompt or another dialog), or the session is idle and the last paragraph of its last reply asks you something, either as a question or with a request such as "let me know" or "needs your approval". When it has asked a question with options, the card shows the question and lets you answer it.
 - **Working**: the session is busy.
 - **Idle**: the session is idle and isn't asking anything.
 
 Each card shows the session name and repository, the AI title (hover or tap it for the latest away summary), the last thing you asked, the ticket keys it mentions most recently, how long since anything happened, the cost so far, and the last reply (expandable, formatted as Markdown, or as raw text with the "formatted replies" toggle off). The page refreshes every 5 seconds and the filter box searches across all of it, so typing a ticket key finds every tab working on that ticket.
 
 Each waiting or idle card has a **reply** button. Type the next prompt there and press **Send** (or Cmd+Enter), and the dashboard types it into that session's Terminal tab and submits it, exactly as if you had typed it in the tab yourself. The reply box keeps what you've written through refreshes. A busy session can't be sent to until it's idle again.
+
+When Claude asks a question with options, the card shows the question as it appears in the terminal, one question at a time, with the same options and a box to type your own answer. Choose and press **Answer**, and the dashboard presses the keys in that session's tab; the card then shows the next question, and finally a **Submit answers** button with your answers listed. The dashboard reads the question from the Terminal tab's text, because Claude Code only writes it to the transcript once it has been answered.
 
 Each open card also has a **×** in its top-right corner. It stops that session's Claude process and closes its Terminal window. An idle session closes straight away; one that is waiting on you or still working asks first. The conversation isn't lost: the session moves to the closed column, where **copy resume** brings it back.
 
@@ -44,7 +46,7 @@ What that means in practice, measured on 2.1.220: the cost on each card comes fr
 
 Three pieces run on macOS:
 
-- `server.ts` is a [Bun](https://bun.sh) server with five routes: `/` for the dashboard, `/api/sessions` for the data as JSON, `POST /api/sessions/<id>/prompt` for sending a reply, `POST /api/sessions/<id>/close` for closing a session, and `/healthz` for health. `/healthz` reports the process id, the start time and a hash of the code and `.env` the process loaded.
+- `server.ts` is a [Bun](https://bun.sh) server with six routes: `/` for the dashboard, `/api/sessions` for the data as JSON, `POST /api/sessions/<id>/prompt` for sending a reply, `POST /api/sessions/<id>/answer` for answering a question, `POST /api/sessions/<id>/close` for closing a session, and `/healthz` for health. `/healthz` reports the process id, the start time and a hash of the code and `.env` the process loaded.
 - `local.session-board` is a per-user LaunchAgent that runs the server. It starts at login, and launchd restarts it whenever it exits.
 - `local.session-board.watchdog` is a second LaunchAgent that runs `watchdog.sh` every 30 seconds and whenever `server.ts`, `index.html` or `.env` changes. It restarts the server if `/healthz` stops answering (the process has hung) or if the hash no longer matches the files on disk. Editing the code or the settings reloads the dashboard within a few seconds.
 

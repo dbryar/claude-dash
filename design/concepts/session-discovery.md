@@ -48,7 +48,7 @@ Find every Claude Code session worth showing: the ones running now, and the ones
 
 ## Acceptance criteria
 
-1. Given a registry file whose `pid` is running, when `/api/sessions` is requested, then that session appears in `live` with its `name`, `pid`, `kind`, `status`, `cwd`, `repo` (last path segment of `cwd`), `sessionId`, `startedAt`, `statusSince` and `canReply` (see [Prompt delivery](prompt-delivery.md) criterion 10a).
+1. Given a registry file whose `pid` is running, when `/api/sessions` is requested, then that session appears in `live` with its `name`, `pid`, `kind`, `status`, `cwd`, `repo` (last path segment of `cwd`), `sessionId`, `startedAt`, `statusSince`, `waitingFor` (when the registry has it) and `canReply` (see [Prompt delivery](prompt-delivery.md) criterion 10a).
 2. Given a registry file whose `pid` is not running, then that session does not appear in `live`.
 3. Given a registry file whose `pid` is running but whose `procStart` differs from that pid's real start time by more than five seconds, then that session does not appear in `live`.
 4. Given a registry file whose `pid` is running and whose `procStart` matches that pid's real start time, then that session appears in `live` whatever the process calls itself, including a background job reporting `claude bg-spare`.

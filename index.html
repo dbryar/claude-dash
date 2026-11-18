@@ -69,6 +69,18 @@
   .composer .hint { color:var(--muted); font-size:11px }
   .composer button { border:1px solid var(--c); background:var(--c); color:#fff; border-radius:5px; padding:3px 12px; font:600 12px system-ui, sans-serif; cursor:pointer }
   .composer button:disabled { opacity:.5; cursor:default }
+  .asking { margin:8px 0 4px; padding:8px 10px; border-radius:6px; background:var(--col); font-size:13px }
+  .asking h3 { margin:0 0 6px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--c) }
+  .asking .q + .q { margin-top:8px; padding-top:8px; border-top:1px solid var(--line) }
+  .asking .qh { font-size:11px; color:var(--muted) }
+  .asking .opt { display:flex; gap:8px; align-items:flex-start; margin-top:5px; cursor:pointer }
+  .asking .opt input[type=radio], .asking .opt input[type=checkbox] { margin:3px 0 0; flex:none }
+  .asking .opt b { font-weight:600 } .asking .opt span { display:block; color:var(--muted); font-size:12px }
+  .asking .other { width:100%; margin-top:3px; padding:4px 6px; border:1px solid var(--line); border-radius:5px; background:var(--card); color:var(--ink); font:13px system-ui, sans-serif }
+  .asking .row { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:8px }
+  .asking .err { color:var(--ask); font-size:12px; margin-right:auto } .asking .ok { color:var(--muted); font-size:12px; margin-right:auto }
+  .asking button { border:1px solid var(--c); background:var(--c); color:#fff; border-radius:5px; padding:3px 12px; font:600 12px system-ui, sans-serif; cursor:pointer }
+  .asking button:disabled { opacity:.5; cursor:default }
   .reply { font-size:13px; max-height:320px; overflow:auto; overflow-wrap:anywhere; margin:6px 0 0 }
   pre.reply { white-space:pre-wrap; font-size:12px }
   .md > :first-child { margin-top:0 } .md > :last-child { margin-bottom:0 }
@@ -210,7 +222,8 @@ for (const c of COLUMNS) {
 }
 const colEl = key => board.querySelector(`.col[data-key="${CSS.escape(key)}"]`);
 
-function cardHtml(s) {
+function cardHtml(s) { return headHtml(s) + "\u0000" + bodyHtml(s); }
+function headHtml(s) {
   return `${s.live ? `<button class="x" data-close title="Close this session">×</button>` : ""}<div class="top">
       ${s.name ? `<span class="name">${esc(s.name)}</span>` : ""}
       <span class="muted">${esc(s.repo)}</span>
@@ -218,19 +231,48 @@ function cardHtml(s) {
     </div>
     ${s.away
       ? `<div class="title hint" tabindex="0">${esc(s.title || s.firstPrompt || "(untitled)")}<div class="tip">${esc(s.away)} <span class="age">(${ago(s.awayAt)})</span></div></div>`
-      : `<div class="title">${esc(s.title || s.firstPrompt || "(untitled)")}</div>`}
-    ${s.lastPrompt ? `<div class="prompt">You last asked: ${esc(s.lastPrompt)}</div>` : ""}
+      : `<div class="title">${esc(s.title || s.firstPrompt || "(untitled)")}</div>`}`;
+}
+function bodyHtml(s) {
+  return `${s.lastPrompt ? `<div class="prompt">You last asked: ${esc(s.lastPrompt)}</div>` : ""}
     ${s.lastAssistant ? `<details${openReplies.has(s.sessionId) ? " open" : ""}><summary>Last reply</summary>${replyHtml(s.lastAssistant)}</details>` : ""}
     <div class="meta">
       <span>last activity ${ago(s.lastAt)}</span>
       ${s.startedAt ? `<span>started ${when(s.startedAt)}</span>` : ""}
       ${s.pid ? `<span>pid ${s.pid}</span>` : ""}
-      ${s.live && s.status && s.status !== "idle" && s.status !== "busy" ? `<span>status ${esc(s.status)}</span>` : ""}
+      ${s.live && s.status && s.status !== "idle" && s.status !== "busy" ? `<span>${s.waitingFor ? `${esc(s.status)}: ${esc(s.waitingFor)}` : `status ${esc(s.status)}`}</span>` : ""}
       ${s.costUsd != null ? `<span>US$${s.costUsd.toFixed(2)}</span>` : ""}
       <button data-copy="${esc(`claude --resume ${s.sessionId}`)}" title="Copy resume command">copy resume</button>
       ${canReply(s) ? `<button data-reply title="Type a reply into this session's terminal">reply</button>` : ""}
     </div>`;
 }
+
+// The answer form for the question menu a session is showing, read by the server from its terminal.
+// Built once per menu screen and never re-rendered, so selections, typed text and focus survive
+// refreshes; the next screen (next question or review) replaces it. See design/concepts/question-answering.md.
+const menuKey = s => s.live && s.menu ? JSON.stringify([s.menu.kind, s.menu.question, (s.menu.options || []).map(o => o.label)]) : null;
+function askHtml(s) {
+  const m = s.menu;
+  const tabs = m.tabs.length > 1 ? `<div class="qh">${m.tabs.map(t => `${t.done ? "☒" : "☐"} ${esc(t.title)}`).join("  ")}</div>` : "";
+  if (m.kind === "review") return `<h3>Claude is asking</h3>${tabs}
+    <div>Review your answers${m.unanswered ? ". Some questions are unanswered." : ":"}</div>
+    ${m.answers.map(x => `<div class="opt"><div><b>${esc(x.question)}</b><span>${esc(x.answer || "(not answered)")}</span></div></div>`).join("")}
+    <div class="row"><span class="err"></span><button class="answer-send" data-review ${m.onSubmit ? "" : "disabled"}>Submit answers</button></div>`;
+  const name = `${s.sessionId}-q`, type = m.multi ? "checkbox" : "radio";
+  return `<h3>Claude is asking</h3>${tabs}<div class="q">
+    ${m.multi ? `<div class="qh">choose any</div>` : ""}
+    <div>${esc(m.question)}</div>
+    ${m.options.map((o, k) => `<label class="opt"><input type="${type}" name="${name}" value="${k}"${o.ticked ? " checked" : ""}><div><b>${esc(o.label)}</b>${o.description && o.description !== o.label ? `<span>${esc(o.description)}</span>` : ""}</div></label>`).join("")}
+    ${m.multi ? "" : `<label class="opt"><input type="radio" name="${name}" value="text"><div style="flex:1"><b>Type something</b><input class="other" type="text" maxlength="1000" aria-label="Your own answer"></div></label>`}
+  </div><div class="row"><span class="err"></span><button class="answer-send" disabled>${m.tabs.length > 1 ? "Answer" : "Send answer"}</button></div>`;
+}
+function readAnswer(form) {
+  if (form.querySelector("[data-review]")) return { review: "submit" };
+  const picked = [...form.querySelectorAll(".q input:checked")].map(i => i.value);
+  if (picked[0] === "text") { const t = form.querySelector(".other").value.trim(); return t ? { text: t } : null; }
+  return picked.length ? { choices: picked.map(Number) } : null;
+}
+const updateAnswerButton = form => { form.querySelector(".answer-send").disabled = !!form.dataset.sending || !readAnswer(form); };
 
 // Returns the card element for a session, re-rendering its body only when its content changed.
 function cardFor(s) {
@@ -240,17 +282,29 @@ function cardFor(s) {
     const el = document.createElement("article");
     el.className = "card";
     el.dataset.id = s.sessionId;
-    el.innerHTML = `<div class="body"></div>
+    el.innerHTML = `<div class="head"></div><div class="asking" hidden></div><div class="body"></div>
       <div class="note" hidden></div>
       <div class="composer" hidden>
         <textarea placeholder="Reply to this session" aria-label="Reply"></textarea>
         <div class="row"><span class="err"></span><span class="hint">Cmd+Enter</span><button class="send">Send</button></div>
       </div>`;
-    entry = { el, body: el.querySelector(".body"), composer: el.querySelector(".composer"), html: null };
+    entry = { el, head: el.querySelector(".head"), body: el.querySelector(".body"), ask: el.querySelector(".asking"),
+              composer: el.querySelector(".composer"), html: null, askFor: null };
     cards.set(s.sessionId, entry);
   }
   entry.el.style.setProperty("--c", COLOUR[s.attention]);
-  if (entry.html !== html) { entry.body.innerHTML = html; entry.html = html; }
+  if (entry.html !== html) {
+    const [head, body] = html.split("\u0000");
+    if (entry.head.innerHTML !== head) entry.head.innerHTML = head;
+    entry.body.innerHTML = body; entry.html = html;
+  }
+  const key = menuKey(s);
+  if (key !== entry.askFor && !entry.ask.dataset.sending) {
+    entry.askFor = key;
+    entry.ask.innerHTML = key ? askHtml(s) : "";
+    if (key) { entry.menu = s.menu; updateAnswerButton(entry.ask); }
+  }
+  entry.ask.hidden = !entry.askFor;
   entry.composer.hidden = !(canReply(s) && openComposers.has(s.sessionId));
   return entry.el;
 }
@@ -391,9 +445,42 @@ document.addEventListener("click", e => {
     return;
   }
   if (card && e.target.matches(".send")) { sendReply(card.dataset.id); return; }
+  if (card && e.target.matches(".answer-send")) { sendAnswers(card.dataset.id); return; }
   const v = e.target.dataset?.copy;
   if (v) { navigator.clipboard.writeText(v); e.target.textContent = "copied"; setTimeout(() => e.target.textContent = "copy resume", 1200); }
 });
+board.addEventListener("input", e => {
+  const form = e.target.closest?.(".asking");
+  if (!form) return;
+  if (e.target.matches(".other")) e.target.closest(".opt").querySelector("input[type=radio]").checked = true;
+  updateAnswerButton(form);
+});
+board.addEventListener("change", e => { const form = e.target.closest?.(".asking"); if (form) updateAnswerButton(form); });
+async function sendAnswers(id) {
+  const entry = cards.get(id);
+  if (!entry || !entry.menu) return;
+  const form = entry.ask, err = form.querySelector(".err"), answer = readAnswer(form);
+  if (!answer || form.dataset.sending) return;
+  const m = entry.menu;
+  const body = answer.review ? answer : { question: m.question, labels: m.options.map(o => o.label), ...answer };
+  form.dataset.sending = "1"; updateAnswerButton(form);
+  err.className = "err"; err.textContent = "answering in the terminal…";
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/answer`, {
+      method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) {
+      err.className = "ok";
+      err.textContent = j.next === "next question" ? "Answered. Loading the next question…" : j.next === "review" ? "Answered. Loading the review…" : "Answered.";
+      form.querySelectorAll("input, button").forEach(i => i.disabled = true);
+      form.dataset.sending = "done";
+      setTimeout(() => { form.dataset.sending = ""; entry.askFor = null; refresh(); }, j.next === "answered" ? 3000 : 600);
+      return;
+    }
+    err.textContent = j.error || `failed (${r.status})`;
+  } catch { err.textContent = "server not reachable"; }
+  form.dataset.sending = ""; updateAnswerButton(form);
+}
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("showClosed").addEventListener("change", render);
 document.getElementById("mdOn").addEventListener("change", e => {

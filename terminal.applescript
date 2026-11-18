@@ -13,6 +13,13 @@
 --   Closes the tab's window if the tab holds only login and a shell and is the window's
 --   only tab; types "exit" into the shell if it holds only those but shares the window.
 --   Prints "closed", "exited", "busy:<processes>" or "notab".
+--
+-- osascript terminal.applescript screen /dev/ttysNNN
+--   Prints the last 6,000 characters of the tab's text, or "notab".
+--
+-- osascript terminal.applescript keys /dev/ttysNNN "<keys>"
+--   Writes the keys once. do script always follows them with a line feed, which Claude Code's
+--   menus read as Enter, so each write is one step that ends in Enter. Prints "ok" or "notab".
 on run argv
   set action to item 1 of argv
   set target to item 2 of argv
@@ -25,6 +32,14 @@ on run argv
             do script (item 3 of argv) in t
             delay 0.4
             do script (ASCII character 13) in t
+            return "ok"
+          else if action is "screen" then
+            set h to history of t
+            set n to count of h
+            if n > 6000 then set h to text (n - 5999) thru n of h
+            return h
+          else if action is "keys" then
+            do script (item 3 of argv) in t
             return "ok"
           else if action is "close" then
             set procs to processes of t
