@@ -205,7 +205,8 @@ function liveEntries(): any[] {
 
 function attention(status: string, d: Digest, live: boolean): string {
   if (!live) return "closed";
-  if (status === "busy" && d.pendingTool) return "working"; // the registry only records idle/busy, so a permission prompt also reads as busy
+  // Claude Code 2.1.327+ records a dialog that needs you (a question, some permission prompts) as `waiting`.
+  if (status === "waiting") return "asked you";
   if (status === "busy") return "working";
   return asksYou(d.lastAssistant) ? "asked you" : "idle";
 }
@@ -241,6 +242,7 @@ function collect() {
       live: true, name: s.name, pid: s.pid, kind: s.kind, status: s.status,
       cwd: s.cwd, repo: basename(s.cwd), sessionId: s.sessionId,
       startedAt: s.startedAt, statusSince: s.statusUpdatedAt,
+      waitingFor: typeof s.waitingFor === "string" ? s.waitingFor : undefined,
       attention: attention(s.status, d as Digest, true),
       // Owned by prompt delivery, not inferred from the label: the registry has statuses
       // beyond idle and busy (`shell`), and those are labelled idle but cannot be replied to.
@@ -385,6 +387,183 @@ async function closeRoute(req: Request, id: string) {
   return error ? fail(status, error) : Response.json({ ok: true, window: windowResult });
 }
 
+// ---- Question answering (design/concepts/question-answering.md) ----
+// Claude Code writes a question's tool call to the transcript only once it is answered, so an open
+// question is read from the session's Terminal tab. Every write to the tab ends in a line feed, which
+// the menu reads as Enter, so each step moves the highlight with arrow keys and lets that Enter act.
+// The highlight and ticks are read from the screen before every step: pressing up from the first
+// option wraps to "Chat about this" and declines the question, so the highlight cannot be reset blind.
+const UP = "\x1b[A", DOWN = "\x1b[B";
+const SCRIPT = join(import.meta.dir, "terminal.applescript");
+const squash = (t: string) => t.replace(/\s+/g, " ").trim();
+const moves = (from: number, to: number) => (to > from ? DOWN : UP).repeat(Math.abs(to - from));
+
+type Tab = { title: string; done: boolean };
+type MenuOption = { label: string; description?: string; ticked?: boolean };
+type Menu =
+  | { kind: "question"; tabs: Tab[]; question: string; multi: boolean; options: MenuOption[]; cursor: number }
+  | { kind: "review"; tabs: Tab[]; answers: { question: string; answer: string }[]; unanswered: boolean; onSubmit: boolean };
+
+const OPTION_LINE = /^(❯| ) (\d+)\. (?:\[(.)\] )?(.*)$/;
+
+// Parses the question menu drawn at the bottom of a tab's text, or returns undefined.
+function parseMenu(screen: string): Menu | undefined {
+  const lines = screen.replace(/\s+$/, "").split("\n").map((l) => l.replace(/\s+$/, ""));
+  let top = -1;
+  for (let i = lines.length - 2; i >= Math.max(0, lines.length - 150); i--)
+    if (/^─{20,}$/.test(lines[i]) && /^(←\s+)?\s*[☐☒] /.test(lines[i + 1])) { top = i; break; }
+  if (top < 0) return;
+  const tabs = [...lines[top + 1].matchAll(/([☐☒])\s+(.+?)(?=\s{2,}|\s*[☐☒✔→]|$)/g)]
+    .map((m) => ({ title: m[2].trim(), done: m[1] === "☒" }));
+  const body = lines.slice(top + 2);
+
+  if (body.some((l) => /^Review your answers$/.test(l.trim()))) {
+    if (!body.some((l) => l.startsWith("❯ "))) return;
+    const answers: { question: string; answer: string }[] = [];
+    for (const l of body) {
+      const q = l.match(/^\s*● (.*)$/), a = l.match(/^\s*→ (.*)$/);
+      if (q) answers.push({ question: q[1].trim(), answer: "" });
+      else if (a && answers.length) answers[answers.length - 1].answer = a[1].trim();
+    }
+    return {
+      kind: "review", tabs, answers,
+      unanswered: body.some((l) => /questions are unanswered/.test(l)),
+      onSubmit: body.some((l) => /^❯ 1\. Submit answers$/.test(l)),
+    };
+  }
+
+  const footer = body.findIndex((l) => /^Enter to select/.test(l));
+  if (footer < 0 || body.slice(footer + 1).some((l) => l.trim())) return; // the menu must be the last thing drawn
+  const first = body.findIndex((l) => OPTION_LINE.test(l));
+  if (first < 0 || first > footer) return;
+  const question = squash(body.slice(0, first).join(" "));
+  const options: MenuOption[] = [];
+  let cursor = 0, afterType = false;
+  for (const line of body.slice(first, footer)) {
+    if (/^─{20,}$/.test(line)) break; // "Chat about this" sits below this rule
+    const m = line.match(OPTION_LINE);
+    if (m) {
+      const k = Number(m[2]);
+      if (/^Type something/.test(m[4])) { afterType = true; if (m[1] === "❯") cursor = k; continue; }
+      if (afterType || k !== options.length + 1) return;
+      options.push({ label: m[4], ...(m[3] !== undefined && { ticked: m[3] !== " " }) });
+      if (m[1] === "❯") cursor = k;
+    } else if (/^❯\s+(Next|Submit)$/.test(line)) cursor = options.length + 2;
+    else if (!afterType && options.length && /^\s{4,}\S/.test(line)) {
+      const o = options[options.length - 1];
+      o.description = squash(`${o.description ?? ""} ${line}`);
+    }
+  }
+  if (!question || !options.length || !cursor) return;
+  return { kind: "question", tabs, question, multi: options.some((o) => o.ticked !== undefined), options, cursor };
+}
+
+async function ttyOf(pid: number) {
+  const t = (await run(["ps", "-o", "tty=", "-p", String(pid)])).out;
+  return t && !t.startsWith("?") ? `/dev/${t}` : undefined;
+}
+
+async function term(action: "screen" | "keys", tty: string, keys?: string) {
+  const r = await run(["osascript", SCRIPT, action, tty, ...(keys === undefined ? [] : [keys])]);
+  if (r.code !== 0) throw new Error(/-1743|not allowed|not authori[sz]ed/i.test(r.err)
+    ? "macOS has not allowed the dashboard to control Terminal (System Settings > Privacy & Security > Automation)"
+    : `Terminal could not be controlled: ${r.err.slice(0, 200)}`);
+  if (r.out === "notab") throw new Error("the session is not running in a Terminal tab");
+  return r.out;
+}
+
+// The open menu of a session waiting on input, read at most every two seconds per session.
+const menuCache = new Map<number, { at: number; menu?: Menu }>();
+async function menuFor(s: any): Promise<Menu | undefined> {
+  if (s.status !== "waiting" || s.waitingFor !== "input needed") return;
+  const hit = menuCache.get(s.pid);
+  if (hit && Date.now() - hit.at < 2000) return hit.menu;
+  let menu: Menu | undefined;
+  try {
+    const tty = await ttyOf(s.pid);
+    if (tty) menu = parseMenu(await term("screen", tty));
+  } catch {}
+  menuCache.set(s.pid, { at: Date.now(), menu });
+  return menu;
+}
+
+const cleanAnswerText = (t: string) => cleanPrompt(t).replace(/\s*\n\s*/g, " ");
+const sameQuestion = (m: Menu | undefined, question: string, labels: string[]) =>
+  m?.kind === "question" && m.question === squash(question) &&
+  m.options.length === labels.length && m.options.every((o, i) => o.label === labels[i]);
+
+type AnswerBody = { question?: string; labels?: string[]; choices?: number[]; text?: string; review?: string };
+
+async function answerMenu(id: string, b: AnswerBody): Promise<[number, string | null, string?]> {
+  const s = liveSession(id);
+  if (!s) return [404, "no running session with that id"];
+  if (s.status !== "waiting") return [409, "the session is no longer waiting on you"];
+  const tty = await ttyOf(s.pid);
+  if (!tty) return [422, "the session has no terminal"];
+  menuCache.delete(s.pid);
+  const settle = async (from: Menu): Promise<[number, string | null, string?]> => {
+    for (let i = 0; i < 25; i++) {
+      await sleep(200);
+      const now = liveSession(id);
+      if (!now || now.status !== "waiting") return [200, null, "answered"];
+      const m = parseMenu(await term("screen", tty));
+      if (from.kind === "review" ? m?.kind !== "review" : !sameQuestion(m, from.question, from.options.map((o) => o.label)))
+        return [200, null, m?.kind === "review" ? "review" : m ? "next question" : "answered"];
+    }
+    return [502, "the keys were sent but the terminal still shows the same screen; check it there"];
+  };
+
+  try {
+    const m = parseMenu(await term("screen", tty));
+    if (b.review !== undefined) {
+      if (b.review !== "submit") return [400, "review must be \"submit\""];
+      if (m?.kind !== "review" || !m.onSubmit) return [409, "the terminal is not showing the review screen with \"Submit answers\" highlighted"];
+      await term("keys", tty, "");
+      return await settle(m);
+    }
+    if (typeof b.question !== "string" || !Array.isArray(b.labels) || !sameQuestion(m, b.question, b.labels))
+      return [409, "the terminal is showing a different question; wait for the board to refresh and try again"];
+    const q = m as Extract<Menu, { kind: "question" }>, n = q.options.length;
+    const choices = b.choices ?? [], text = b.text === undefined ? undefined : cleanAnswerText(b.text);
+    if (!choices.every((c) => Number.isInteger(c) && c >= 0 && c < n) || new Set(choices).size !== choices.length)
+      return [400, "an option number is out of range"];
+    if (text !== undefined && (!text || text.length > 1000)) return [400, "the typed answer must be 1 to 1,000 characters"];
+    if (q.multi ? !choices.length || text !== undefined : choices.length + (text !== undefined ? 1 : 0) !== 1)
+      return [400, q.multi ? "choose at least one option" : "choose exactly one option or type an answer"];
+
+    if (!q.multi) {
+      await term("keys", tty, moves(q.cursor, text !== undefined ? n + 1 : choices[0] + 1) + (text ?? ""));
+      return await settle(q);
+    }
+    const want = new Set(choices.map((c) => c + 1));
+    let cur: Menu | undefined = q;
+    for (let k = 1; k <= n; k++) {
+      if (cur.kind !== "question") break;
+      if (!!cur.options[k - 1].ticked === want.has(k)) continue;
+      await term("keys", tty, moves(cur.cursor, k));
+      await sleep(400);
+      cur = parseMenu(await term("screen", tty));
+      if (!sameQuestion(cur, q.question, q.options.map((o) => o.label)) || !!(cur as typeof q).options[k - 1].ticked !== want.has(k))
+        return [502, `option ${k} did not change as expected; check the terminal`];
+    }
+    await term("keys", tty, moves((cur as typeof q).cursor, n + 2));
+    return await settle(q);
+  } catch (e) {
+    return [502, (e as Error).message];
+  }
+}
+
+async function answerRoute(req: Request, id: string) {
+  const b = await writeGuard(req);
+  if (b instanceof Response) return b;
+  const okArr = (v: unknown, t: string) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === t));
+  if (!(b.review !== undefined || (typeof b.question === "string" && okArr(b.labels, "string") && b.labels &&
+        okArr(b.choices, "number") && (b.text === undefined || typeof b.text === "string"))))
+    return fail(400, "expected {\"question\", \"labels\", \"choices\" or \"text\"} or {\"review\": \"submit\"}");
+  const [status, error, next] = await answerMenu(id, b);
+  return error ? fail(status, error) : Response.json({ ok: true, next });
+}
+
 const page = readFileSync(join(import.meta.dir, "index.html"), "utf8");
 const STARTED_AT = new Date().toISOString();
 // Hash of the code and .env this process loaded. watchdog.sh compares it with the files on disk
@@ -399,14 +578,25 @@ const CODE_HASH = createHash("sha256")
 Bun.serve({
   hostname: "127.0.0.1",
   port: PORT,
-  fetch(req) {
+  async fetch(req) {
     const url = new URL(req.url);
-    const write = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]{36})\/(prompt|close)$/);
-    if (write && req.method === "POST") return write[2] === "prompt" ? promptRoute(req, write[1]) : closeRoute(req, write[1]);
+    const write = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]{36})\/(prompt|close|answer)$/);
+    if (write && req.method === "POST")
+      return ({ prompt: promptRoute, close: closeRoute, answer: answerRoute } as const)[write[2] as "prompt"](req, write[1]);
     if (req.method !== "GET" && req.method !== "HEAD") return new Response("not found", { status: 404 });
     if (url.pathname === "/healthz")
       return Response.json({ ok: true, pid: process.pid, startedAt: STARTED_AT, codeHash: CODE_HASH });
-    if (url.pathname === "/api/sessions") return Response.json(collect());
+    if (url.pathname === "/api/sessions") {
+      const data = collect();
+      // A session waiting on input gets the menu it is showing, read from its Terminal tab.
+      const entries = liveEntries();
+      await Promise.all(data.live.map(async (s: any) => {
+        const raw = entries.find((e) => e.sessionId === s.sessionId);
+        const menu = raw && await menuFor(raw);
+        if (menu) s.menu = menu;
+      }));
+      return Response.json(data);
+    }
     if (url.pathname === "/") return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     return new Response("not found", { status: 404 });
   },
