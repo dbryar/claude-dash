@@ -18,6 +18,14 @@ const SESSIONS = join(HOME, ".claude", "sessions");
 const PROJECTS = join(HOME, ".claude", "projects");
 const PORT = Number(process.env.SESSION_BOARD_PORT ?? 7377);
 const RECENT_DAYS = Number(process.env.SESSION_BOARD_RECENT_DAYS ?? 7);
+// Permission mode for sessions started or resumed from the board. See design/concepts/session-starting.md.
+const PERMISSION_FLAGS: Record<string, string[]> = {
+  skip: ["--dangerously-skip-permissions"],
+  auto: ["--permission-mode", "auto"],
+  ask: [],
+};
+const PERMISSION_MODE = Object.hasOwn(PERMISSION_FLAGS, process.env.SESSION_BOARD_PERMISSION_MODE ?? "")
+  ? process.env.SESSION_BOARD_PERMISSION_MODE! : "auto";
 // Ticket keys to pick out of prompts and titles. TICKET_PREFIXES comes from .env
 // (see .env.example). Unset, any Jira-style key (ABC-123) matches.
 const PREFIXES = (process.env.TICKET_PREFIXES ?? "")
@@ -120,6 +128,11 @@ function findTranscript(sessionId: string): string | undefined {
     const p = join(PROJECTS, dir, `${sessionId}.jsonl`);
     if (existsSync(p)) return p;
   }
+}
+
+// The working directory recorded in a transcript: the first record that carries one.
+function transcriptCwd(path: string): string {
+  try { return JSON.parse(readFileSync(path, "utf8").split("\n").find((l) => l.includes('"cwd"')) ?? "{}").cwd ?? ""; } catch { return ""; }
 }
 
 function alive(pid: number) {
@@ -267,8 +280,7 @@ function collect() {
       if (st.mtimeMs < cutoff || st.size < 2000) continue;
       const d = digest(p);
       if (!d.title && !d.firstPrompt) continue;
-      let cwd = "";
-      try { cwd = JSON.parse(readFileSync(p, "utf8").split("\n").find((l) => l.includes('"cwd"')) ?? "{}").cwd ?? ""; } catch {}
+      const cwd = transcriptCwd(p);
       closed.push({
         live: false, sessionId: id, cwd, repo: cwd ? basename(cwd) : dir,
         attention: "closed", lastAt: d.lastAt ?? new Date(st.mtimeMs).toISOString(), ...d,
@@ -276,7 +288,7 @@ function collect() {
     }
   }
   closed.sort((a, b) => (b.lastAt ?? "").localeCompare(a.lastAt ?? ""));
-  return { generatedAt: new Date().toISOString(), live, closed };
+  return { generatedAt: new Date().toISOString(), live, closed, permissionMode: PERMISSION_MODE };
 }
 
 // ---- Prompt delivery (design/concepts/prompt-delivery.md) ----
@@ -566,15 +578,9 @@ async function answerRoute(req: Request, id: string) {
 }
 
 // ---- Session starting (design/concepts/session-starting.md) ----
-async function startSession(raw: string): Promise<[number, string | null, any?]> {
-  if (!raw.trim() || raw.length > 1024 || /[\x00-\x1f\x7f-\x9f]/.test(raw))
-    return [400, "the directory must be 1 to 1,024 characters with no control characters"];
-  const dir = raw.trim().replace(/^~(?=\/|$)/, HOME);
-  if (!dir.startsWith("/")) return [400, "the directory must be an absolute path"];
-  let isDir = false;
-  try { isDir = statSync(dir).isDirectory(); } catch {}
-  if (!isDir) return [400, `${dir} is not a directory`];
-  const r = await run(["osascript", SCRIPT, "new", dir]);
+// The directory, a session to resume (or none), and a permission mode, all already checked.
+async function openSession(dir: string, args: string[]): Promise<[number, string | null, any?]> {
+  const r = await run(["osascript", SCRIPT, "new", dir, ...args]);
   if (r.code !== 0) {
     if (/-1743|not allowed|not authori[sz]ed/i.test(r.err))
       return [502, "macOS has not allowed the dashboard to control Terminal (System Settings > Privacy & Security > Automation)"];
@@ -589,12 +595,42 @@ async function startSession(raw: string): Promise<[number, string | null, any?]>
     : `a tab could not be opened, so a window was: ${why.slice(0, 200)}` }];
 }
 
+const isDirectory = (p: string) => { try { return statSync(p).isDirectory(); } catch { return false; } };
+
+async function startSession(raw: string, flags: string[]): Promise<[number, string | null, any?]> {
+  if (!raw.trim() || raw.length > 1024 || /[\x00-\x1f\x7f-\x9f]/.test(raw))
+    return [400, "the directory must be 1 to 1,024 characters with no control characters"];
+  const dir = raw.trim().replace(/^~(?=\/|$)/, HOME);
+  if (!dir.startsWith("/")) return [400, "the directory must be an absolute path"];
+  if (!isDirectory(dir)) return [400, `${dir} is not a directory`];
+  return openSession(dir, flags);
+}
+
+// Resumed in the directory its transcript records, and only when no process holds it.
+async function resumeSession(id: string, flags: string[]): Promise<[number, string | null, any?]> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) return [404, "no session with that id"];
+  const tp = findTranscript(id);
+  if (!tp) return [404, "no session with that id"];
+  if (liveSession(id)) return [409, "that session is already running"];
+  const dir = transcriptCwd(tp);
+  if (!dir) return [422, "the session's transcript does not record its directory"];
+  if (!isDirectory(dir)) return [422, `the session's directory ${dir} no longer exists`];
+  return openSession(dir, ["--resume", id, ...flags]);
+}
+
 async function newRoute(req: Request) {
   const body = await writeGuard(req);
   if (body instanceof Response) return body;
-  if (typeof body.cwd !== "string") return fail(400, "expected {\"cwd\": \"<directory>\"}");
-  const [status, error, result] = await startSession(body.cwd);
-  return error ? fail(status, error) : Response.json({ ok: true, ...result });
+  const mode = body.mode ?? PERMISSION_MODE;
+  if (typeof mode !== "string" || !Object.hasOwn(PERMISSION_FLAGS, mode))
+    return fail(400, "mode must be \"skip\", \"auto\" or \"ask\"");
+  const flags = PERMISSION_FLAGS[mode];
+  let result: [number, string | null, any?];
+  if (typeof body.resume === "string") result = await resumeSession(body.resume, flags);
+  else if (typeof body.cwd === "string") result = await startSession(body.cwd, flags);
+  else return fail(400, "expected {\"cwd\": \"<directory>\"} or {\"resume\": \"<session id>\"}");
+  const [status, error, extra] = result;
+  return error ? fail(status, error) : Response.json({ ok: true, mode, ...extra });
 }
 
 const page = readFileSync(join(import.meta.dir, "index.html"), "utf8");

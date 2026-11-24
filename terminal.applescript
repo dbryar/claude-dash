@@ -21,20 +21,27 @@
 --   Writes the keys once. do script always follows them with a line feed, which Claude Code's
 --   menus read as Enter, so each write is one step that ends in Enter. Prints "ok" or "notab".
 --
--- osascript terminal.applescript new "<directory>"
---   Starts claude in the directory, in a new tab of the frontmost Terminal window. When macOS is
---   set to open windows as tabs (AppleWindowTabbingMode "always"), a new window from do script
---   is a tab already: prints "tab:merged". The new tab opens behind: the tab that was selected is
---   selected again, and if Terminal comes to the front the application that was there is brought back. Otherwise Terminal's dictionary cannot make a tab, so
---   Cmd-T is pressed through System Events (needs Accessibility permission) and the new tab is
---   found by its new tty: prints "tab". Cmd-T needs Terminal in front, so afterwards the previous
---   tab is selected again and the application that was in front is brought back. If no new tab appears, nothing is typed into an existing
---   tab and a new window is opened: prints "window" (Terminal had no window) or
---   "window:notab:<System Events error, if any>". The caller has checked the directory exists.
+-- osascript terminal.applescript new "<directory>" [<claude argument>...]
+--   Starts claude in the directory, with each argument shell-quoted, in a new tab of the frontmost
+--   Terminal window. The tab opens behind: the tab that was selected stays selected.
+--   When macOS opens windows as tabs (AppleWindowTabbingMode "always"), a window from do script is
+--   a tab already, and Terminal is not brought to the front: prints "tab:merged".
+--   Otherwise Terminal's dictionary cannot make a tab, so Terminal is brought forward and Cmd-T is
+--   pressed through System Events (needs Accessibility permission); the new tab is found by its new
+--   tty, and the application that was in front is brought back: prints "tab". If no new tab
+--   appears, nothing is typed into an existing tab and a new window is opened: prints "window"
+--   (Terminal had no window) or "window:notab:<System Events error, if any>".
+--   The caller has checked the directory exists.
 on run argv
   set action to item 1 of argv
   set target to item 2 of argv
-  if action is "new" then return startSession(target)
+  if action is "new" then
+    set cmd to "cd " & quoted form of target & " && claude"
+    repeat with i from 3 to count of argv
+      set cmd to cmd & " " & quoted form of (item i of argv)
+    end repeat
+    return startSession(cmd)
+  end if
   set shells to {"login", "-zsh", "zsh", "-bash", "bash", "-sh", "sh", "-fish", "fish"}
   tell application "Terminal"
     repeat with w in windows
@@ -75,15 +82,12 @@ on run argv
   return "notab"
 end run
 
-on startSession(dir)
-  set cmd to "cd " & quoted form of dir & " && claude"
+on startSession(cmd)
   -- With macOS set to prefer tabs always, a new Terminal window opens as a tab of the front one.
   set tabbing to ""
   try
     set tabbing to do shell script "defaults read -g AppleWindowTabbingMode"
   end try
-  -- The application in front now, brought back afterwards if Terminal takes its place.
-  set prevApp to frontBundle()
   tell application "Terminal"
     -- The new tab is opened behind: whichever tab you were in stays selected, so typing carries on
     -- there. Terminal lists each tab as a window, front to back, so the front one is the selected tab.
@@ -94,10 +98,10 @@ on startSession(dir)
       if prevId is not missing value then set index of window id prevId to 1
     end if
   end tell
-  if tabbing is "always" then
-    restoreFront(prevApp)
-    return "tab:merged"
-  end if
+  -- do script does not bring Terminal to the front, so nothing else needs restoring. Measured on
+  -- 24-11-2026: the front application stayed in front for 8 seconds after a start; an earlier watcher
+  -- that restored it whenever Terminal came forward was itself what brought Terminal forward.
+  if tabbing is "always" then return "tab:merged"
   tell application "Terminal"
     -- Terminal lists every native tab as its own window, so a tab is recognised by a new tty.
     set ttysBefore to {}
@@ -111,6 +115,8 @@ on startSession(dir)
       return "window"
     end if
   end tell
+  -- Cmd-T needs Terminal in front, so the application in front now is brought back afterwards.
+  set prevApp to frontBundle()
   tell application "Terminal" to activate
   -- activate returns before Terminal is frontmost; a key press sent sooner goes to another app.
   repeat 30 times
@@ -151,16 +157,9 @@ on frontBundle()
   return ""
 end frontBundle
 
--- Terminal comes to the front a moment after a new tab or window opens. If it was not in front
--- before, wait up to 1.5 seconds for that, then bring the previous application back with open -b,
--- which needs no permission either.
+-- Brings back the application that was in front before Terminal was activated for Cmd-T, with
+-- open -b, which needs no permission.
 on restoreFront(prevApp)
   if prevApp is "" or prevApp is "com.apple.Terminal" then return
-  repeat 15 times
-    if frontBundle() is "com.apple.Terminal" then
-      do shell script "open -b " & quoted form of prevApp
-      return
-    end if
-    delay 0.1
-  end repeat
+  do shell script "open -b " & quoted form of prevApp
 end restoreFront

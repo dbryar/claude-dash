@@ -26,7 +26,9 @@ When Claude asks a question with options, the card shows the question as it appe
 
 Each open card also has a **×** in its top-right corner. It stops that session's Claude process and closes its Terminal window. An idle session closes straight away; one that is waiting on you or still working asks first. The conversation isn't lost: the session moves to the closed column, where **copy resume** brings it back.
 
-To start a new session, press **new session** in the header, choose a directory (it suggests the ones your sessions run in, and remembers the last one) and press **Start**. The dashboard opens a new tab in the frontmost Terminal window and runs `claude` there.
+To start a new session, press **new session** in the header, choose a directory (it suggests the ones your sessions run in, and remembers the last one) and press **Start**. The dashboard opens a new tab behind the frontmost Terminal tab and runs `claude` there. To bring back a closed session, press **resume** on its card, or pick it in the form's session list; it resumes in the directory it ran in.
+
+The form's permissions list sets how the session runs: **Auto** (`--permission-mode auto`), **Skip all prompts** (`--dangerously-skip-permissions`) or **Ask for each tool** (Claude Code's own default). It starts at `SESSION_BOARD_PERMISSION_MODE` (`auto` when unset) and then remembers your last choice.
 
 Tick **show recently closed** to list sessions closed in the last 7 days (change this with `SESSION_BOARD_RECENT_DAYS`). Each one has a **copy resume** button that copies `claude --resume <session id>`. Closing a tab doesn't throw anything away: the whole conversation stays on disk and comes back with that command. That's what lets you close tabs you're only keeping open "just in case".
 

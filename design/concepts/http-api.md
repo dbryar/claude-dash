@@ -40,7 +40,7 @@ Serve the dashboard and its data to a browser on the same machine, accept prompt
 
 - **Localhost only.** Transcripts hold whole conversations, so the server binds `127.0.0.1`.
 - **Write routes usable only from the dashboard page.** Sending a prompt makes a session act with your permissions, closing one stops a process, and starting one runs `claude` in a directory of the caller's choosing, so no other web page you visit may trigger any of them. A browser lets any site send a request to `127.0.0.1`, and DNS rebinding can make a hostile site appear to be on `127.0.0.1`. Every write route therefore requires the `Host` header to be this server's own address and the `Origin` header to be this server's own origin, and only accepts `application/json` (a cross-site JSON request needs a CORS preflight, which this server never grants). Every other route is read only.
-- **Refusals say why**, so the page can show a useful message: 400 invalid, 403 not from the dashboard, 404 no such live session, 409 session busy or confirmation needed, 413 too long, 415 not JSON, 422 not in a Terminal tab or not a Claude Code process, 502 Terminal could not be controlled.
+- **Refusals say why**, so the page can show a useful message: 400 invalid, 403 not from the dashboard, 404 no such live session, 409 session busy, already running or confirmation needed, 413 too long, 415 not JSON, 422 not in a Terminal tab or not a Claude Code process, 502 Terminal could not be controlled.
 - **No dependencies beyond Bun.** Nothing to install, nothing to keep patched.
 - **The code hash is taken at start-up** over `server.ts`, `index.html` and `.env` in that order (an absent `.env` contributes nothing). It describes the code the process is running, which may differ from the files on disk.
 
@@ -48,16 +48,16 @@ Serve the dashboard and its data to a browser on the same machine, accept prompt
 
 1. The server listens on `127.0.0.1` only, on the configured port.
 2. `GET /` returns `index.html` as `text/html; charset=utf-8`.
-3. `GET /api/sessions` returns JSON with `generatedAt`, `live` and `closed`.
+3. `GET /api/sessions` returns JSON with `generatedAt`, `live`, `closed` and `permissionMode`, the configured default for starting sessions.
 4. `GET /healthz` returns JSON with `ok: true`, `pid`, `startedAt` and `codeHash`.
 5. `codeHash` equals the SHA-256 of the bytes of `server.ts`, `index.html` and `.env` (if present), concatenated in that order, as they were when the process started.
 6. `POST /api/sessions/<id>/prompt` with JSON `{"text": "..."}` hands the text to [Prompt delivery](prompt-delivery.md) and returns `{"ok": true}` on success, or `{"ok": false, "error": "<reason>"}` with the status codes listed under design decisions.
 7. `POST /api/sessions/<id>/close` with JSON `{"confirmed": true|false}` hands the request to [Session closing](session-closing.md) and returns `{"ok": true, "window": "<what happened to the window>"}` on success, or `{"ok": false, "error": "<reason>"}`.
 7a. `POST /api/sessions/<id>/answer` with JSON `{"question": "...", "labels": ["..."], "choices": [<option index from 0>, ...]}`, `{"question", "labels", "text": "..."}` or `{"review": "submit"}` hands the request to [Question answering](question-answering.md) and returns `{"ok": true, "next": "next question" | "review" | "answered"}` on success, or `{"ok": false, "error": "<reason>"}`. Each live session waiting on input carries the `menu` its terminal shows (see Question answering criterion 1).
-7b. `POST /api/sessions/new` with JSON `{"cwd": "<directory>"}` hands the directory to [Session starting](session-starting.md) and returns `{"ok": true, "opened": "tab" | "window", "note"?: "..."}` on success, or `{"ok": false, "error": "<reason>"}`.
+7b. `POST /api/sessions/new` with JSON `{"cwd": "<directory>", "mode"?: "skip" | "auto" | "ask"}` or `{"resume": "<session id>", "mode"?: ...}` hands the request to [Session starting](session-starting.md) and returns `{"ok": true, "opened": "tab" | "window", "note"?: "..."}` on success, or `{"ok": false, "error": "<reason>"}`.
 8. Given a prompt, close, answer or new-session request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>`, or whose `Origin` is missing or not `http://127.0.0.1:<port>` or `http://localhost:<port>`, then it returns 403 and nothing is sent.
 9. Given a prompt, close, answer or new-session request whose `Content-Type` is not `application/json`, then it returns 415 and nothing is sent.
-10. Given a request body over 64 KB, or not valid JSON with a string `text` (prompt) an optional boolean `confirmed` (close), or `review`, or a string `question` with an array `labels` and `choices` or a string `text` (answer), or a string `cwd` (new session), then it returns 400 or 413 and nothing is done.
+10. Given a request body over 64 KB, or not valid JSON with a string `text` (prompt) an optional boolean `confirmed` (close), or `review`, or a string `question` with an array `labels` and `choices` or a string `text` (answer), or a string `cwd` or `resume` and an optional string `mode` (new session), then it returns 400 or 413 and nothing is done.
 11. The server never sends `Access-Control-Allow-Origin` or answers a CORS preflight.
 12. Any other path or method returns 404.
 

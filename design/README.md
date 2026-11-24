@@ -23,7 +23,7 @@ This folder is the design that the code is built against. Code is generated from
 | Prompt delivery | [`concepts/prompt-delivery.md`](concepts/prompt-delivery.md) | Types a reply into a waiting session's Terminal tab, as if you had typed it |
 | Question answering | [`concepts/question-answering.md`](concepts/question-answering.md) | Shows a question Claude asked with options, read from the terminal screen, and answers it by pressing keys |
 | Session closing | [`concepts/session-closing.md`](concepts/session-closing.md) | Stops a session's process and closes its Terminal window, leaving it resumable |
-| Session starting | [`concepts/session-starting.md`](concepts/session-starting.md) | Starts a new session in a chosen directory, as a new Terminal tab |
+| Session starting | [`concepts/session-starting.md`](concepts/session-starting.md) | Starts a new session, or resumes a closed one, in a new Terminal tab and a chosen permission mode |
 | Service supervision | [`concepts/service-supervision.md`](concepts/service-supervision.md) | Runs the server as a per-user LaunchAgent that restarts on exit |
 | Watchdog | [`concepts/watchdog.md`](concepts/watchdog.md) | Restarts the server when it hangs or when its code or settings change |
 
@@ -71,7 +71,9 @@ flowchart LR
     answering -.->|"reads status and waitingFor"| cc
     answering -.->|"osascript: read screen, send keys"| terminal
     ui -->|"POST /api/sessions/new"| api
-    api -->|"directory"| starting
+    api -->|"directory or session to resume, and permission mode"| starting
+    config -->|"default permission mode"| starting
+    starting -->|"is it closed? its transcript directory"| discovery
     starting -.->|"Cmd-T, unless macOS merges windows into tabs"| sysevents
     starting -.->|"osascript: do script cd and claude in the new tab, or a new window"| terminal
     closing -.->|"SIGTERM, then SIGKILL"| cc

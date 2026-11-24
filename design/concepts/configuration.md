@@ -11,7 +11,7 @@ Hold the settings that differ from one machine or employer to the next, outside 
 **Owns:**
 
 - `.env` (git-ignored) and `.env.example` (committed, placeholder values only).
-- `TICKET_PREFIXES`, `SESSION_BOARD_PORT`, `SESSION_BOARD_RECENT_DAYS` and their defaults.
+- `TICKET_PREFIXES`, `SESSION_BOARD_PORT`, `SESSION_BOARD_RECENT_DAYS`, `SESSION_BOARD_PERMISSION_MODE` and their defaults.
 - Building the ticket-matching pattern from `TICKET_PREFIXES`.
 
 **Does not own:**
@@ -26,6 +26,7 @@ Hold the settings that differ from one machine or employer to the next, outside 
 | [Transcript digest](transcript-digest.md) | Supplies the ticket pattern | `implemented` |
 | [Session discovery](session-discovery.md) | Supplies the closed-list window | `implemented` |
 | [HTTP API](http-api.md) | Supplies the port | `implemented` |
+| [Session starting](session-starting.md) | Supplies the default permission mode | `implemented` |
 | [Watchdog](watchdog.md) | Sources `.env` for the port; includes `.env` in the code hash | `implemented` |
 | [Service supervision](service-supervision.md) | `install.sh` creates `.env` from `.env.example` when missing | `implemented` |
 
@@ -44,6 +45,7 @@ Hold the settings that differ from one machine or employer to the next, outside 
 4. Given `TICKET_PREFIXES` is set, then the stop list does not apply, so `TICKET_PREFIXES=SHA` matches `SHA-256`.
 5. Given a prefix containing anything other than letters and digits, then that prefix is ignored.
 6. Given `SESSION_BOARD_PORT` unset, then the port is 7377; given `SESSION_BOARD_RECENT_DAYS` unset, then the window is 7 days.
+6a. Given `SESSION_BOARD_PERMISSION_MODE` unset, or set to anything other than `skip`, `auto` or `ask`, then the default permission mode is `auto`.
 7. Given `.env` changes, then the running server picks up the new values (via [Watchdog](watchdog.md)).
 
 ## Known implementation gaps
