@@ -97,11 +97,19 @@
   .md th { background:var(--col) }
   .md hr { border:0; border-top:1px solid var(--line); margin:8px 0 }
   .md a { color:var(--work) }
+  header .new { font:600 12px system-ui, sans-serif; border:1px solid var(--work); background:transparent; color:var(--work); border-radius:5px; padding:3px 10px; cursor:pointer }
+  #newForm { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); flex:none }
+  #newForm input { flex:1 1 280px; max-width:560px; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); font:13px ui-monospace, monospace }
+  #newForm button { border:1px solid var(--work); background:var(--work); color:#fff; border-radius:5px; padding:4px 12px; font:600 12px system-ui, sans-serif; cursor:pointer }
+  #newForm button.cancel { background:transparent; color:var(--muted); border-color:var(--line) }
+  #newForm button:disabled { opacity:.5; cursor:default }
+  #newForm .err { color:var(--ask); font-size:12px }
 </style>
 </head>
 <body>
 <header>
   <h1>Session board</h1>
+  <button id="newBtn" class="new" title="Start claude in a new Terminal tab">new session</button>
   <span id="counts" class="muted"></span>
   <input id="q" type="search" placeholder="Filter by name, repo, ticket, text" autocomplete="off">
   <label class="muted"><input type="checkbox" id="showClosed"> show recently closed</label>
@@ -109,6 +117,14 @@
   <span id="updated" class="muted"></span>
   <span id="notice"></span>
 </header>
+<form id="newForm" hidden autocomplete="off">
+  <label class="muted" for="newDir">Start claude in</label>
+  <input id="newDir" list="dirs" placeholder="/path/to/project" spellcheck="false" required>
+  <datalist id="dirs"></datalist>
+  <button type="submit" id="newStart">Start</button>
+  <button type="button" class="cancel" id="newCancel">Cancel</button>
+  <span class="err"></span>
+</form>
 <nav id="tabs"></nav>
 <main id="board"></main>
 <script>
@@ -481,6 +497,36 @@ async function sendAnswers(id) {
   } catch { err.textContent = "server not reachable"; }
   form.dataset.sending = ""; updateAnswerButton(form);
 }
+// New session: a directory box suggesting where the board's sessions run, most recent first.
+// See design/concepts/session-starting.md and dashboard-ui.md criteria 26 and 27.
+const newForm = document.getElementById("newForm"), newDir = document.getElementById("newDir");
+function openNewForm() {
+  const dirs = [...new Set([...data.live, ...data.closed].sort((x, y) => (y.lastAt||"").localeCompare(x.lastAt||"")).map(s => s.cwd).filter(Boolean))];
+  document.getElementById("dirs").innerHTML = dirs.map(d => `<option value="${esc(d)}">`).join("");
+  if (!newDir.value) { try { newDir.value = localStorage.getItem("sessionBoard.newDir") || ""; } catch {} }
+  if (!newDir.value) newDir.value = dirs[0] || "";
+  newForm.querySelector(".err").textContent = "";
+  newForm.hidden = false; newDir.focus(); newDir.select();
+}
+document.getElementById("newBtn").addEventListener("click", () => newForm.hidden ? openNewForm() : (newForm.hidden = true));
+document.getElementById("newCancel").addEventListener("click", () => { newForm.hidden = true; });
+newForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("newStart"), err = newForm.querySelector(".err"), cwd = newDir.value.trim();
+  if (!cwd || btn.disabled) return;
+  btn.disabled = true; err.textContent = "starting…";
+  try {
+    const r = await fetch("/api/sessions/new", { method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify({ cwd }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) {
+      try { localStorage.setItem("sessionBoard.newDir", cwd); } catch {}
+      newForm.hidden = true; err.textContent = "";
+      document.getElementById("notice").textContent = `Started claude in ${cwd} in a new ${j.opened}${j.note ? ` (${j.note})` : ""}.`;
+      setTimeout(refresh, 3000);
+    } else err.textContent = j.error || `failed (${r.status})`;
+  } catch { err.textContent = "server not reachable"; }
+  finally { btn.disabled = false; }
+});
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("showClosed").addEventListener("change", render);
 document.getElementById("mdOn").addEventListener("change", e => {
