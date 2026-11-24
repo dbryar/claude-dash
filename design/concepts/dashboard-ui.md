@@ -10,7 +10,7 @@ Show every session on one page, ordered by what needs you, so you can find the t
 
 **Owns:**
 
-- `index.html`: layout, columns, filtering, refresh, view state, the copy-resume action, the reply composer and the close button.
+- `index.html`: layout, columns, filtering, refresh, view state, the copy-resume action, the reply composer, the close button and the new-session form.
 - How times and dates are displayed.
 
 **Does not own:**
@@ -25,6 +25,7 @@ Show every session on one page, ordered by what needs you, so you can find the t
 | [Attention classification](attention-classification.md) | Uses the label to pick the card's column and colour | `implemented` |
 | [HTTP API](http-api.md) | Posts a reply to `/api/sessions/<id>/prompt` | `implemented` |
 | [HTTP API](http-api.md) | Posts a close to `/api/sessions/<id>/close` | `implemented` |
+| [HTTP API](http-api.md) | Posts a directory to `/api/sessions/new` | `implemented` |
 
 ## Design decisions
 
@@ -34,7 +35,8 @@ Show every session on one page, ordered by what needs you, so you can find the t
 - **The card leads with Claude Code's own title**, the fastest answer to "what was this doing?". The away summary ("we were working on...") is a hint on the title, shown on hover, or on focus or tap where there is no pointer, so it is there when you want it without lengthening every card.
 - **Last replies are Markdown, so render them as Markdown.** Claude Code writes its replies in Markdown, and shown as raw text in a fixed-width font they are hard to read. A header toggle switches every card between formatted and raw text, and the choice is remembered in the browser. The renderer is a small one inside the page rather than a library, which keeps the page free of external requests, and it escapes all reply text before adding formatting, so nothing in a reply can become live HTML.
 - **Reply from the card.** A session waiting on you can be answered without finding its tab. The composer is part of the card's view state, so a half-written reply survives refreshes and the card changing columns.
-- **Copy resume, not a resume button.** The page cannot open a terminal, and the command is what you need to paste.
+- **Copy resume, not a resume button.** The command is what you need to paste.
+- **Start a session from the header.** A "new session" button opens a directory box suggesting the working directories of live and closed sessions, most recent first. The last directory used is remembered in the browser, because the next session is usually in the same place.
 - **A single static file** with inline styles and script, light and dark themes, and no external requests.
 
 ## Acceptance criteria
@@ -62,6 +64,8 @@ Show every session on one page, ordered by what needs you, so you can find the t
 23. The toggle applies to every card at once, is remembered in the browser across reloads, and falls back to on when browser storage is unavailable. Changing it keeps each reply's expanded state.
 24. Formatted replies are built from text that has already been HTML-escaped: HTML in a reply is shown as text, and only `http` and `https` links become links, opening in a new tab.
 25. Given the last reply is longer than 3,000 characters, then the shown part starts at the beginning of a line, preceded by "…", and if the cut falls inside a fenced code block, the remainder is still shown as code.
+26. The header has a "new session" button. Clicking it shows a directory box, filled with the last directory started from (remembered in the browser) and suggesting the distinct working directories of live and closed sessions, most recent first, and a "Start" button; Enter in the box also starts.
+27. Given a directory, when "Start" is pressed, then it is posted to `/api/sessions/new`; while sending, the button is disabled; on success the form closes and the header says whether a tab or a window was opened, with any note; on failure the reason is shown and the directory is kept.
 
 ## Known implementation gaps
 

@@ -26,13 +26,15 @@ When Claude asks a question with options, the card shows the question as it appe
 
 Each open card also has a **×** in its top-right corner. It stops that session's Claude process and closes its Terminal window. An idle session closes straight away; one that is waiting on you or still working asks first. The conversation isn't lost: the session moves to the closed column, where **copy resume** brings it back.
 
+To start a new session, press **new session** in the header, choose a directory (it suggests the ones your sessions run in, and remembers the last one) and press **Start**. The dashboard opens a new tab in the frontmost Terminal window and runs `claude` there.
+
 Tick **show recently closed** to list sessions closed in the last 7 days (change this with `SESSION_BOARD_RECENT_DAYS`). Each one has a **copy resume** button that copies `claude --resume <session id>`. Closing a tab doesn't throw anything away: the whole conversation stays on disk and comes back with that command. That's what lets you close tabs you're only keeping open "just in case".
 
 ## How it works
 
 The dashboard sends nothing off the machine. The server only listens on `127.0.0.1`, and apart from sending a reply it only reads local files.
 
-Sending a reply makes a Claude Code session act with your permissions, and closing one stops a process, so both routes only accept requests from the dashboard page itself. It checks the `Host` and `Origin` headers and only accepts JSON, which stops another website you visit (or one using DNS rebinding) from using it. Replies are typed into the session's Terminal tab with AppleScript, after removing control characters, so a reply can only ever arrive as text.
+Sending a reply makes a Claude Code session act with your permissions, closing one stops a process, and starting one runs `claude` in a directory, so these routes only accept requests from the dashboard page itself. It checks the `Host` and `Origin` headers and only accepts JSON, which stops another website you visit (or one using DNS rebinding) from using it. Replies are typed into the session's Terminal tab with AppleScript, after removing control characters, so a reply can only ever arrive as text.
 
 | Source | What it provides |
 | --- | --- |
@@ -70,6 +72,8 @@ cp .env.example .env    # then edit .env
 Open <http://127.0.0.1:7377>.
 
 The first reply you send makes macOS ask whether `bun` may control Terminal. Allow it. To change your mind later, see System Settings > Privacy & Security > Automation.
+
+**new session** opens a tab without any further permission when System Settings > Desktop & Dock > "Prefer tabs when opening documents" is set to Always. Otherwise it presses Cmd-T in Terminal, which needs `bun` to be allowed under System Settings > Privacy & Security > Accessibility; without that it opens a new window instead and says so.
 
 `install.sh` copies `.env.example` to `.env` if you haven't made one. It fills your paths into the two templates in `launchd/`, writes them to `~/Library/LaunchAgents`, and loads them. Run it again after moving the folder or changing the templates. macOS will show a "Background Items Added" notice the first time.
 

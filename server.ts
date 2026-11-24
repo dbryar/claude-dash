@@ -3,9 +3,10 @@
 //   ~/.claude/sessions/<pid>.json          live session registry (name, cwd, status)
 //   ~/.claude/projects/*/<sessionId>.jsonl transcripts (ai-title, away_summary, last-prompt, cost-state)
 // Runs as the LaunchAgent local.session-board (install.sh); open http://127.0.0.1:7377
-// Two write routes only accept requests from this page: POST /api/sessions/<id>/prompt types a
+// The write routes only accept requests from this page. POST /api/sessions/<id>/prompt types a
 // reply into a session's Terminal tab (design/concepts/prompt-delivery.md), and
 // POST /api/sessions/<id>/close stops a session and closes its window (design/concepts/session-closing.md).
+// POST /api/sessions/new starts claude in a new Terminal tab (design/concepts/session-starting.md).
 
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -564,6 +565,38 @@ async function answerRoute(req: Request, id: string) {
   return error ? fail(status, error) : Response.json({ ok: true, next });
 }
 
+// ---- Session starting (design/concepts/session-starting.md) ----
+async function startSession(raw: string): Promise<[number, string | null, any?]> {
+  if (!raw.trim() || raw.length > 1024 || /[\x00-\x1f\x7f-\x9f]/.test(raw))
+    return [400, "the directory must be 1 to 1,024 characters with no control characters"];
+  const dir = raw.trim().replace(/^~(?=\/|$)/, HOME);
+  if (!dir.startsWith("/")) return [400, "the directory must be an absolute path"];
+  let isDir = false;
+  try { isDir = statSync(dir).isDirectory(); } catch {}
+  if (!isDir) return [400, `${dir} is not a directory`];
+  const r = await run(["osascript", SCRIPT, "new", dir]);
+  if (r.code !== 0) {
+    if (/-1743|not allowed|not authori[sz]ed/i.test(r.err))
+      return [502, "macOS has not allowed the dashboard to control Terminal (System Settings > Privacy & Security > Automation)"];
+    return [502, `Terminal could not be controlled: ${r.err.slice(0, 200)}`];
+  }
+  if (r.out === "tab" || r.out === "tab:merged") return [200, null, { opened: "tab" }];
+  if (r.out === "window") return [200, null, { opened: "window" }];
+  const why = r.out.replace(/^window:notab:?/, "").trim();
+  const denied = /-1719|-25211|1002|assistive|not allowed/i.test(why);
+  return [200, null, { opened: "window", note: denied || !why
+    ? "a tab could not be opened, so a window was; to open tabs, allow bun in System Settings > Privacy & Security > Accessibility"
+    : `a tab could not be opened, so a window was: ${why.slice(0, 200)}` }];
+}
+
+async function newRoute(req: Request) {
+  const body = await writeGuard(req);
+  if (body instanceof Response) return body;
+  if (typeof body.cwd !== "string") return fail(400, "expected {\"cwd\": \"<directory>\"}");
+  const [status, error, result] = await startSession(body.cwd);
+  return error ? fail(status, error) : Response.json({ ok: true, ...result });
+}
+
 const page = readFileSync(join(import.meta.dir, "index.html"), "utf8");
 const STARTED_AT = new Date().toISOString();
 // Hash of the code and .env this process loaded. watchdog.sh compares it with the files on disk
@@ -580,6 +613,7 @@ Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
+    if (url.pathname === "/api/sessions/new" && req.method === "POST") return newRoute(req);
     const write = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]{36})\/(prompt|close|answer)$/);
     if (write && req.method === "POST")
       return ({ prompt: promptRoute, close: closeRoute, answer: answerRoute } as const)[write[2] as "prompt"](req, write[1]);

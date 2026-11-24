@@ -23,6 +23,7 @@ This folder is the design that the code is built against. Code is generated from
 | Prompt delivery | [`concepts/prompt-delivery.md`](concepts/prompt-delivery.md) | Types a reply into a waiting session's Terminal tab, as if you had typed it |
 | Question answering | [`concepts/question-answering.md`](concepts/question-answering.md) | Shows a question Claude asked with options, read from the terminal screen, and answers it by pressing keys |
 | Session closing | [`concepts/session-closing.md`](concepts/session-closing.md) | Stops a session's process and closes its Terminal window, leaving it resumable |
+| Session starting | [`concepts/session-starting.md`](concepts/session-starting.md) | Starts a new session in a chosen directory, as a new Terminal tab |
 | Service supervision | [`concepts/service-supervision.md`](concepts/service-supervision.md) | Runs the server as a per-user LaunchAgent that restarts on exit |
 | Watchdog | [`concepts/watchdog.md`](concepts/watchdog.md) | Restarts the server when it hangs or when its code or settings change |
 
@@ -44,6 +45,8 @@ flowchart LR
     delivery["Prompt delivery"]
     closing["Session closing"]
     answering["Question answering"]
+    starting["Session starting"]
+    sysevents["macOS System Events<br/>(external)"]
     terminal["macOS Terminal<br/>(external)"]
 
     discovery -.->|"reads registry and transcripts, checks each pid is a claude process"| cc
@@ -67,6 +70,10 @@ flowchart LR
     api -->|"menus for waiting sessions; one page's answer"| answering
     answering -.->|"reads status and waitingFor"| cc
     answering -.->|"osascript: read screen, send keys"| terminal
+    ui -->|"POST /api/sessions/new"| api
+    api -->|"directory"| starting
+    starting -.->|"Cmd-T, unless macOS merges windows into tabs"| sysevents
+    starting -.->|"osascript: do script cd and claude in the new tab, or a new window"| terminal
     closing -.->|"SIGTERM, then SIGKILL"| cc
     closing -.->|"osascript: close window or exit shell"| terminal
     delivery -.->|"reads pid and status"| cc
@@ -87,7 +94,8 @@ Dotted edges cross the boundary of this repository.
 | Session registry (`~/.claude/sessions/<pid>.json`) | Claude Code (internal, undocumented) | The only source of which sessions are running and whether each is idle or busy |
 | Session transcripts (`~/.claude/projects/*/<session id>.jsonl`) | Claude Code (internal, undocumented) | The source of titles, away summaries, prompts and cost |
 | LaunchAgents | macOS launchd | Starts, restarts and schedules the two processes |
-| Terminal scripting | macOS Terminal | Typing a prompt into a session's tab, reading it and pressing keys to answer a question; needs your permission for the server to control Terminal |
+| Terminal scripting | macOS Terminal | Typing a prompt into a session's tab, reading it and pressing keys to answer a question, and starting a session in a new tab; needs your permission for the server to control Terminal |
+| Key presses | macOS System Events | Pressing Cmd-T to open a new Terminal tab when macOS does not already open windows as tabs; needs Accessibility permission for the server |
 
 Both Claude Code sources are internal state, not a published interface. The design was written against Claude Code 2.1.325.
 
