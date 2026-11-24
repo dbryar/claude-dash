@@ -99,6 +99,8 @@
   .md a { color:var(--work) }
   header .new { font:600 12px system-ui, sans-serif; border:1px solid var(--work); background:transparent; color:var(--work); border-radius:5px; padding:3px 10px; cursor:pointer }
   #newForm { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); flex:none }
+  #newForm select { padding:5px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); font:13px system-ui, sans-serif; max-width:260px }
+  #newForm input:disabled { opacity:.7 }
   #newForm input { flex:1 1 280px; max-width:560px; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); font:13px ui-monospace, monospace }
   #newForm button { border:1px solid var(--work); background:var(--work); color:#fff; border-radius:5px; padding:4px 12px; font:600 12px system-ui, sans-serif; cursor:pointer }
   #newForm button.cancel { background:transparent; color:var(--muted); border-color:var(--line) }
@@ -118,9 +120,15 @@
   <span id="notice"></span>
 </header>
 <form id="newForm" hidden autocomplete="off">
-  <label class="muted" for="newDir">Start claude in</label>
+  <select id="newWhich" aria-label="Session"><option value="">New session</option></select>
+  <label class="muted" for="newDir">in</label>
   <input id="newDir" list="dirs" placeholder="/path/to/project" spellcheck="false" required>
   <datalist id="dirs"></datalist>
+  <select id="newMode" aria-label="Permissions" title="Permission mode for the session">
+    <option value="auto">Auto</option>
+    <option value="skip">Skip all prompts</option>
+    <option value="ask">Ask for each tool</option>
+  </select>
   <button type="submit" id="newStart">Start</button>
   <button type="button" class="cancel" id="newCancel">Cancel</button>
   <span class="err"></span>
@@ -259,6 +267,7 @@ function bodyHtml(s) {
       ${s.live && s.status && s.status !== "idle" && s.status !== "busy" ? `<span>${s.waitingFor ? `${esc(s.status)}: ${esc(s.waitingFor)}` : `status ${esc(s.status)}`}</span>` : ""}
       ${s.costUsd != null ? `<span>US$${s.costUsd.toFixed(2)}</span>` : ""}
       <button data-copy="${esc(`claude --resume ${s.sessionId}`)}" title="Copy resume command">copy resume</button>
+      ${s.live ? "" : `<button data-resume title="Resume this session in a new Terminal tab">resume</button>`}
       ${canReply(s) ? `<button data-reply title="Type a reply into this session's terminal">reply</button>` : ""}
     </div>`;
 }
@@ -460,6 +469,7 @@ document.addEventListener("click", e => {
     if (open) entry.composer.querySelector("textarea").focus();
     return;
   }
+  if (card && e.target.matches("[data-resume]")) { openNewForm(card.dataset.id); return; }
   if (card && e.target.matches(".send")) { sendReply(card.dataset.id); return; }
   if (card && e.target.matches(".answer-send")) { sendAnswers(card.dataset.id); return; }
   const v = e.target.dataset?.copy;
@@ -497,35 +507,61 @@ async function sendAnswers(id) {
   } catch { err.textContent = "server not reachable"; }
   form.dataset.sending = ""; updateAnswerButton(form);
 }
-// New session: a directory box suggesting where the board's sessions run, most recent first.
-// See design/concepts/session-starting.md and dashboard-ui.md criteria 26 and 27.
+// New session: a directory box suggesting where the board's sessions run, most recent first, or a
+// closed session to resume, and a permission mode. See design/concepts/session-starting.md and
+// dashboard-ui.md criteria 26 to 27.
 const newForm = document.getElementById("newForm"), newDir = document.getElementById("newDir");
-function openNewForm() {
-  const dirs = [...new Set([...data.live, ...data.closed].sort((x, y) => (y.lastAt||"").localeCompare(x.lastAt||"")).map(s => s.cwd).filter(Boolean))];
-  document.getElementById("dirs").innerHTML = dirs.map(d => `<option value="${esc(d)}">`).join("");
-  if (!newDir.value) { try { newDir.value = localStorage.getItem("sessionBoard.newDir") || ""; } catch {} }
-  if (!newDir.value) newDir.value = dirs[0] || "";
-  newForm.querySelector(".err").textContent = "";
-  newForm.hidden = false; newDir.focus(); newDir.select();
+const newWhich = document.getElementById("newWhich"), newMode = document.getElementById("newMode");
+const newStart = document.getElementById("newStart");
+let newDirTyped = "", modeChosen = null;
+try { modeChosen = localStorage.getItem("sessionBoard.mode"); } catch {}
+const byRecentAt = (x, y) => (y.lastAt||"").localeCompare(x.lastAt||"");
+function syncNewForm() {
+  const s = data.closed.find(c => c.sessionId === newWhich.value);
+  newDir.disabled = !!s;
+  newDir.value = s ? s.cwd || "" : newDirTyped;
+  newStart.textContent = s ? "Resume" : "Start";
 }
+function openNewForm(resumeId) {
+  const dirs = [...new Set([...data.live, ...data.closed].sort(byRecentAt).map(s => s.cwd).filter(Boolean))];
+  document.getElementById("dirs").innerHTML = dirs.map(d => `<option value="${esc(d)}">`).join("");
+  newWhich.innerHTML = `<option value="">New session</option>` + [...data.closed].sort(byRecentAt).map(s =>
+    `<option value="${esc(s.sessionId)}">Resume: ${esc((s.title || s.firstPrompt || "(untitled)").slice(0, 60))} (${esc(s.repo)}, ${ago(s.lastAt)})</option>`).join("");
+  newWhich.value = resumeId && data.closed.some(s => s.sessionId === resumeId) ? resumeId : "";
+  if (!newDirTyped) { try { newDirTyped = localStorage.getItem("sessionBoard.newDir") || ""; } catch {} }
+  if (!newDirTyped) newDirTyped = dirs[0] || "";
+  const mode = modeChosen || data.permissionMode;
+  if ([...newMode.options].some(o => o.value === mode)) newMode.value = mode;
+  syncNewForm();
+  newForm.querySelector(".err").textContent = "";
+  newForm.hidden = false;
+  if (newWhich.value) newStart.focus(); else { newDir.focus(); newDir.select(); }
+}
+newWhich.addEventListener("change", syncNewForm);
+newDir.addEventListener("input", () => { if (!newWhich.value) newDirTyped = newDir.value; });
+newMode.addEventListener("change", () => { modeChosen = newMode.value; try { localStorage.setItem("sessionBoard.mode", modeChosen); } catch {} });
 document.getElementById("newBtn").addEventListener("click", () => newForm.hidden ? openNewForm() : (newForm.hidden = true));
 document.getElementById("newCancel").addEventListener("click", () => { newForm.hidden = true; });
 newForm.addEventListener("submit", async e => {
   e.preventDefault();
-  const btn = document.getElementById("newStart"), err = newForm.querySelector(".err"), cwd = newDir.value.trim();
-  if (!cwd || btn.disabled) return;
-  btn.disabled = true; err.textContent = "starting…";
+  const err = newForm.querySelector(".err"), resume = newWhich.value, cwd = newDir.value.trim();
+  if ((!resume && !cwd) || newStart.disabled) return;
+  const target = resume ? data.closed.find(s => s.sessionId === resume) : null;
+  newStart.disabled = true; err.textContent = resume ? "resuming…" : "starting…";
   try {
-    const r = await fetch("/api/sessions/new", { method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify({ cwd }) });
+    const body = resume ? { resume, mode: newMode.value } : { cwd, mode: newMode.value };
+    const r = await fetch("/api/sessions/new", { method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j.ok) {
-      try { localStorage.setItem("sessionBoard.newDir", cwd); } catch {}
+      if (!resume) { try { localStorage.setItem("sessionBoard.newDir", cwd); } catch {} }
       newForm.hidden = true; err.textContent = "";
-      document.getElementById("notice").textContent = `Started claude in ${cwd} in a new ${j.opened}${j.note ? ` (${j.note})` : ""}.`;
+      const what = resume ? `Resumed ${target?.title || "the session"}` : `Started claude in ${cwd}`;
+      const modeName = newMode.selectedOptions[0].textContent.toLowerCase();
+      document.getElementById("notice").textContent = `${what} in a new ${j.opened} (${modeName})${j.note ? `; ${j.note}` : ""}.`;
       setTimeout(refresh, 3000);
     } else err.textContent = j.error || `failed (${r.status})`;
   } catch { err.textContent = "server not reachable"; }
-  finally { btn.disabled = false; }
+  finally { newStart.disabled = false; }
 });
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("showClosed").addEventListener("change", render);

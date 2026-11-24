@@ -37,6 +37,8 @@ Show every session on one page, ordered by what needs you, so you can find the t
 - **Reply from the card.** A session waiting on you can be answered without finding its tab. The composer is part of the card's view state, so a half-written reply survives refreshes and the card changing columns.
 - **Copy resume, not a resume button.** The command is what you need to paste.
 - **Start a session from the header.** A "new session" button opens a directory box suggesting the working directories of live and closed sessions, most recent first. The last directory used is remembered in the browser, because the next session is usually in the same place.
+- **Resume through the same form.** The form's "session" picker offers a new session or any recently closed one; each closed card's "resume" button opens the form with that session picked. One form means the permission mode is always in view before a session starts, whether new or resumed.
+- **The permission mode is chosen on the form.** It starts at the server's configured default and then remembers your last choice in the browser.
 - **A single static file** with inline styles and script, light and dark themes, and no external requests.
 
 ## Acceptance criteria
@@ -64,8 +66,11 @@ Show every session on one page, ordered by what needs you, so you can find the t
 23. The toggle applies to every card at once, is remembered in the browser across reloads, and falls back to on when browser storage is unavailable. Changing it keeps each reply's expanded state.
 24. Formatted replies are built from text that has already been HTML-escaped: HTML in a reply is shown as text, and only `http` and `https` links become links, opening in a new tab.
 25. Given the last reply is longer than 3,000 characters, then the shown part starts at the beginning of a line, preceded by "…", and if the cut falls inside a fenced code block, the remainder is still shown as code.
-26. The header has a "new session" button. Clicking it shows a directory box, filled with the last directory started from (remembered in the browser) and suggesting the distinct working directories of live and closed sessions, most recent first, and a "Start" button; Enter in the box also starts.
-27. Given a directory, when "Start" is pressed, then it is posted to `/api/sessions/new`; while sending, the button is disabled; on success the form closes and the header says whether a tab or a window was opened, with any note; on failure the reason is shown and the directory is kept.
+26. The header has a "new session" button. Clicking it shows a "session" picker (a new session, then each recently closed session by title), a directory box, a permissions picker ("Auto", "Skip all prompts", "Ask for each tool"), and a "Start" button; Enter in the box also starts. For a new session the directory box is filled with the last directory started from (remembered in the browser) and suggests the distinct working directories of live and closed sessions, most recent first.
+26a. Given a closed session is picked, then the directory box shows that session's directory and cannot be edited, and the button reads "Resume".
+26b. Each closed card has a "resume" button that opens the form with that session picked.
+26c. The permissions picker starts at the server's `permissionMode`; once changed, the choice is remembered in the browser and used from then on.
+27. Given a directory or a picked session, when "Start" or "Resume" is pressed, then the directory or session id is posted to `/api/sessions/new` with the chosen mode; while sending, the button is disabled; on success the form closes and the header says what was started and whether a tab or a window was opened, with any note; on failure the reason is shown and the form is kept as it was.
 
 ## Known implementation gaps
 
