@@ -10,12 +10,13 @@ Show every session on one page, ordered by what needs you, so you can find the t
 
 **Owns:**
 
-- `index.html`: layout, columns, filtering, refresh, view state, the copy-resume action, the reply composer, the close button and the new-session form.
+- `index.html`: layout, columns, filtering, refresh, view state, the copy-resume action, the reply composer, the close button, the open button that shows a card in the [Session view](session-view.md), and the new-session form.
 - How times and dates are displayed.
 
 **Does not own:**
 
 - The data or the attention labels, which arrive from [HTTP API](http-api.md).
+- The full-screen view of one session, owned by [Session view](session-view.md). Dashboard UI supplies its data, its Markdown renderer and the card's composer and question form.
 
 ## Interactions
 
@@ -26,6 +27,7 @@ Show every session on one page, ordered by what needs you, so you can find the t
 | [HTTP API](http-api.md) | Posts a reply to `/api/sessions/<id>/prompt` | `implemented` |
 | [HTTP API](http-api.md) | Posts a close to `/api/sessions/<id>/close` | `implemented` |
 | [HTTP API](http-api.md) | Posts a directory to `/api/sessions/new` | `implemented` |
+| [Session view](session-view.md) | Opens it for a card; passes it the current session on every refresh; lends it the card's composer and question form | `implemented` |
 
 ## Design decisions
 
@@ -34,6 +36,7 @@ Show every session on one page, ordered by what needs you, so you can find the t
 - **Refreshing must not disturb what you're reading or writing.** Each session keeps one card element for its lifetime. The card's content is only re-rendered when it changes, and the reply composer sits outside that content, so it is never re-rendered at all. An expanded last reply stays expanded, and keeps its scroll position, when its card is replaced.
 - **The card leads with Claude Code's own title**, the fastest answer to "what was this doing?". The away summary ("we were working on...") is a hint on the title, shown on hover, or on focus or tap where there is no pointer, so it is there when you want it without lengthening every card.
 - **Last replies are Markdown, so render them as Markdown.** Claude Code writes its replies in Markdown, and shown as raw text in a fixed-width font they are hard to read. A header toggle switches every card between formatted and raw text, and the choice is remembered in the browser. The renderer is a small one inside the page rather than a library, which keeps the page free of external requests, and it escapes all reply text before adding formatting, so nothing in a reply can become live HTML.
+- **The card is a summary; the whole session opens in its own view.** A card cuts the last reply to its final 3,000 characters to keep the board scannable. The full reply and a larger reply box are one click away in the [Session view](session-view.md), not added to the card.
 - **Reply from the card.** A session waiting on you can be answered without finding its tab. The composer is part of the card's view state, so a half-written reply survives refreshes and the card changing columns.
 - **Copy resume, not a resume button.** The command is what you need to paste.
 - **Start a session from the header.** A "new session" button opens a directory box suggesting the working directories of live and closed sessions, most recent first. The last directory used is remembered in the browser, because the next session is usually in the same place.
@@ -65,7 +68,7 @@ Show every session on one page, ordered by what needs you, so you can find the t
 22. The header has a "formatted replies" toggle, on by default. On, the last reply renders headings, bold, italic, strikethrough, inline code, fenced code blocks, bulleted and numbered lists (including nested ones), tables, block quotes, horizontal rules and links. Off, the last reply is shown as raw text in a fixed-width font.
 23. The toggle applies to every card at once, is remembered in the browser across reloads, and falls back to on when browser storage is unavailable. Changing it keeps each reply's expanded state.
 24. Formatted replies are built from text that has already been HTML-escaped: HTML in a reply is shown as text, and only `http` and `https` links become links, opening in a new tab.
-25. Given the last reply is longer than 3,000 characters, then the shown part starts at the beginning of a line, preceded by "…", and if the cut falls inside a fenced code block, the remainder is still shown as code.
+25. Given the last reply is longer than 3,000 characters, then the shown part starts at the beginning of a line, preceded by "…", and if the cut falls inside a fenced code block, the remainder is still shown as code. A "show full reply" link follows it and opens the [Session view](session-view.md).
 26. The header has a "new session" button. Clicking it shows a "session" picker (a new session, then each recently closed session by title), a directory box, a permissions picker ("Auto", "Skip all prompts", "Ask for each tool"), and a "Start" button; Enter in the box also starts. For a new session the directory box is filled with the last directory started from (remembered in the browser) and suggests the distinct working directories of live and closed sessions, most recent first.
 26a. Given a closed session is picked, then the directory box shows that session's directory and cannot be edited, and the button reads "Resume".
 26b. Each closed card has a "resume" button that opens the form with that session picked.
