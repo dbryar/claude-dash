@@ -107,6 +107,6 @@ Where a version has been observed to differ, the concept records it rather than 
 | --- | --- | --- | --- |
 | `cost-state` records absent | 2.1.220 | [Transcript digest](concepts/transcript-digest.md) | No cost is shown on any card |
 | `cost-state` records present, carrying `totalCostUSD` and a `modelUsage` breakdown | 2.1.325 | [Transcript digest](concepts/transcript-digest.md) | Cost is shown; a recorded zero shows as `US$0.00`, an absent record shows nothing |
-| Registry `status` can be `shell`, not just `idle` or `busy` | 2.1.220 | [Attention classification](concepts/attention-classification.md) | Such a session is labelled idle; it is no longer offered a reply box |
+| Registry `status` can be `shell`, not just `idle` or `busy`: idle, with a background bash task still running | 2.1.220, 2.1.331 | [Attention classification](concepts/attention-classification.md), [Prompt delivery](concepts/prompt-delivery.md) | Labelled idle and replied to as idle; the card says a background task is running |
 | The process name is rewritten: a background job reports `claude bg-spare`, and `ps -o ucomm=` reports the version string | 2.1.220, 2.1.325 | [Session discovery](concepts/session-discovery.md) | Session identity is checked against `procStart`, never the process name |
 | One transcript can hold records from several versions when a session is resumed across an upgrade | 2.1.220 + 2.1.325 | [Transcript digest](concepts/transcript-digest.md) | A record's presence is a property of the record, not of the installed version |
