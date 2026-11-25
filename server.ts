@@ -258,9 +258,8 @@ function collect() {
       startedAt: s.startedAt, statusSince: s.statusUpdatedAt,
       waitingFor: typeof s.waitingFor === "string" ? s.waitingFor : undefined,
       attention: attention(s.status, d as Digest, true),
-      // Owned by prompt delivery, not inferred from the label: the registry has statuses
-      // beyond idle and busy (`shell`), and those are labelled idle but cannot be replied to.
-      canReply: s.status === "idle",
+      // Owned by prompt delivery, not inferred from the label. See design/concepts/prompt-delivery.md.
+      canReply: AT_PROMPT.has(s.status),
       ...d,
     });
   }
@@ -293,6 +292,9 @@ function collect() {
 
 // ---- Prompt delivery (design/concepts/prompt-delivery.md) ----
 const MAX_TEXT = 20_000;
+// Statuses in which the session's input box is open. Claude Code writes `shell` in place of `idle`
+// while a background bash task it started is still running (read from 2.1.331); it is at the prompt.
+const AT_PROMPT = new Set(["idle", "shell"]);
 const MAX_BODY = 64 * 1024;
 const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const ORIGINS = new Set([...HOSTS].map((h) => `http://${h}`));
@@ -321,7 +323,7 @@ async function deliverPrompt(id: string, raw: string): Promise<[number, string |
   if (text.length > MAX_TEXT) return [413, "the reply is longer than 20,000 characters"];
   const s = liveSession(id);
   if (!s) return [404, "no running session with that id"];
-  if (s.status !== "idle") return [409, "the session is busy; wait until it is idle"];
+  if (!AT_PROMPT.has(s.status)) return [409, "the session is busy; wait until it is idle"];
   const tty = (await run(["ps", "-o", "tty=", "-p", String(s.pid)])).out;
   if (!tty || tty.startsWith("?")) return [422, "the session has no terminal"];
   const r = await run(["osascript", join(import.meta.dir, "terminal.applescript"), "type", `/dev/${tty}`, text]);
