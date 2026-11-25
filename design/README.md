@@ -20,6 +20,7 @@ This folder is the design that the code is built against. Code is generated from
 | Configuration | [`concepts/configuration.md`](concepts/configuration.md) | Local settings in `.env`, kept out of the repository |
 | HTTP API | [`concepts/http-api.md`](concepts/http-api.md) | The localhost server: dashboard page, session data and health |
 | Dashboard UI | [`concepts/dashboard-ui.md`](concepts/dashboard-ui.md) | The page that groups, filters and refreshes session cards, and composes replies |
+| Session view | [`concepts/session-view.md`](concepts/session-view.md) | Opens one card as a modal or full-screen view with the whole last reply and a larger reply box |
 | Prompt delivery | [`concepts/prompt-delivery.md`](concepts/prompt-delivery.md) | Types a reply into a waiting session's Terminal tab, as if you had typed it |
 | Question answering | [`concepts/question-answering.md`](concepts/question-answering.md) | Shows a question Claude asked with options, read from the terminal screen, and answers it by pressing keys |
 | Session closing | [`concepts/session-closing.md`](concepts/session-closing.md) | Stops a session's process and closes its Terminal window, leaving it resumable |
@@ -40,6 +41,7 @@ flowchart LR
     attention["Attention classification"]
     api["HTTP API"]
     ui["Dashboard UI"]
+    view["Session view"]
     supervision["Service supervision"]
     watchdog["Watchdog"]
     delivery["Prompt delivery"]
@@ -62,6 +64,8 @@ flowchart LR
     api -->|"calls on each /api/sessions request"| discovery
     ui -->|"polls /api/sessions every 5 s"| api
     ui -->|"POST /api/sessions/&lt;id&gt;/prompt"| api
+    ui -->|"opens for a card; current session on each refresh; lends composer and question form"| view
+    view -->|"POST prompt and answer, through the borrowed composer and form"| api
     api -->|"session id and text"| delivery
     ui -->|"POST /api/sessions/&lt;id&gt;/close"| api
     api -->|"session id and confirmation"| closing

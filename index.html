@@ -43,8 +43,9 @@
   }
 
   .card { position:relative; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--c); border-radius:8px; padding:10px 12px; flex:none }
-  .top { display:flex; gap:6px 8px; align-items:center; flex-wrap:wrap; padding-right:24px }
-  .x { position:absolute; top:6px; right:6px; width:24px; height:24px; border:0; border-radius:12px; background:transparent; color:var(--muted); font:18px/24px system-ui, sans-serif; cursor:pointer; padding:0 }
+  .top { display:flex; gap:6px 8px; align-items:center; flex-wrap:wrap; padding-right:52px }
+  .acts { position:absolute; top:6px; right:6px; display:flex; gap:2px }
+  .x { width:24px; height:24px; border:0; border-radius:12px; background:transparent; color:var(--muted); font:18px/24px system-ui, sans-serif; cursor:pointer; padding:0 }
   .x:hover { background:var(--col); color:var(--ink) }
   .x:disabled { opacity:.4; cursor:default }
   .card .note { color:var(--ask); font-size:12px; margin-top:6px }
@@ -61,6 +62,7 @@
   .prompt { color:var(--muted); font-size:13px; margin:4px 0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere }
   .meta { display:flex; gap:4px 12px; color:var(--muted); font-size:12px; margin-top:8px; flex-wrap:wrap; align-items:center }
   .meta button { font:12px ui-monospace, monospace; border:1px solid var(--line); background:transparent; color:var(--ink); border-radius:5px; padding:2px 8px; cursor:pointer }
+  .more { border:0; background:none; padding:0; margin-top:6px; color:var(--work); font:12px system-ui, sans-serif; cursor:pointer }
   details summary { cursor:pointer; color:var(--muted); font-size:12px; margin-top:6px }
   .composer { margin-top:8px; display:flex; flex-direction:column; gap:6px }
   .composer textarea { width:100%; min-height:72px; resize:vertical; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); font:13px/1.4 -apple-system, system-ui, sans-serif }
@@ -97,6 +99,33 @@
   .md th { background:var(--col) }
   .md hr { border:0; border-top:1px solid var(--line); margin:8px 0 }
   .md a { color:var(--work) }
+  /* Session view: one session in a dialog, full screen on narrow screens. See design/concepts/session-view.md. */
+  #view { padding:0; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink);
+          width:min(1000px, calc(100vw - 32px)); max-width:none; height:90vh; max-height:90vh; box-shadow:0 10px 40px rgba(0,0,0,.35) }
+  #view[open] { display:flex; flex-direction:column }
+  #view::backdrop { background:rgba(0,0,0,.45) }
+  #view .vhead { flex:none; position:relative; padding:10px 16px; border-bottom:1px solid var(--line); border-top:4px solid var(--c); border-radius:10px 10px 0 0 }
+  #view .vhead .top { padding-right:32px }
+  #view .vhead .acts { top:8px; right:10px }
+  #view .lbl { color:var(--c); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.05em }
+  #view .vtools { display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:12px }
+  #view .vtools button { font:12px ui-monospace, monospace; border:1px solid var(--line); background:transparent; color:var(--ink); border-radius:5px; padding:2px 8px; cursor:pointer }
+  #view .vbody { flex:1; min-height:0; overflow-y:auto; padding:12px 16px }
+  #view .vbody .reply { max-height:none; overflow:visible; font-size:14px; margin:0 }
+  #view .vbody pre.reply { font-size:13px }
+  #view .away, #view .vprompt { color:var(--muted); font-size:13px; margin:0 0 10px; overflow-wrap:anywhere; white-space:pre-wrap }
+  #view .vbody .meta { margin:14px 0 0; padding-top:8px; border-top:1px solid var(--line) }
+  #view .vfoot { flex:none; max-height:65%; overflow-y:auto; border-top:1px solid var(--line); padding:8px 16px 12px }
+  #view .vfoot:empty { display:none }
+  #view .vnote { color:var(--muted); font-size:13px }
+  #view .vnote:empty { display:none }
+  #view .asking { margin-top:0 }
+  #view .composer { margin-top:4px }
+  #view .composer textarea { resize:none; min-height:calc(6 * 1.4em + 18px); font-size:14px }
+  @media (max-width:720px) {
+    #view { width:100vw; height:100vh; height:100dvh; max-height:none; margin:0; border:0; border-radius:0 }
+    #view .vhead { border-radius:0 }
+  }
   header .new { font:600 12px system-ui, sans-serif; border:1px solid var(--work); background:transparent; color:var(--work); border-radius:5px; padding:3px 10px; cursor:pointer }
   #newForm { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--line); flex:none }
   #newForm select { padding:5px 6px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--ink); font:13px system-ui, sans-serif; max-width:260px }
@@ -135,6 +164,18 @@
 </form>
 <nav id="tabs"></nav>
 <main id="board"></main>
+<dialog id="view" aria-labelledby="viewTitle">
+  <div class="vhead">
+    <div class="acts"><button class="x" data-vclose title="Close (Esc)" aria-label="Close">×</button></div>
+    <div class="vh"></div>
+    <div class="vtools">
+      <label class="muted"><input type="checkbox" id="mdOnView"> formatted reply</label>
+      <button data-vcopy title="Copy the whole reply as Markdown">copy reply</button>
+    </div>
+  </div>
+  <div class="vbody"></div>
+  <div class="vfoot"><div class="vnote"></div></div>
+</dialog>
 <script>
 const COLUMNS = [
   { key:"asked you", label:"Waiting on you", colour:"var(--ask)" },
@@ -223,6 +264,8 @@ let mdOn = true;
 try { mdOn = localStorage.getItem("sessionBoard.md") !== "off"; } catch {}
 document.getElementById("mdOn").checked = mdOn;
 const replyHtml = s => mdOn ? `<div class="reply md">${md(replyTail(s))}</div>` : `<pre class="reply">${esc(replyTail(s))}</pre>`;
+const replyFullHtml = s => { s = s.replace(/\r\n?/g, "\n").trim(); return mdOn ? `<div class="reply md">${md(s)}</div>` : `<pre class="reply">${esc(s)}</pre>`; };
+const isLong = s => s.replace(/\r\n?/g, "\n").trim().length > 3000;
 
 const when = t => t ? new Date(t).toLocaleString("en-AU", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false }).replace(/\//g,"-").replace(",", "") : "";
 
@@ -248,7 +291,7 @@ const colEl = key => board.querySelector(`.col[data-key="${CSS.escape(key)}"]`);
 
 function cardHtml(s) { return headHtml(s) + "\u0000" + bodyHtml(s); }
 function headHtml(s) {
-  return `${s.live ? `<button class="x" data-close title="Close this session">×</button>` : ""}<div class="top">
+  return `<div class="acts"><button class="x" data-open title="Open the full session view" aria-label="Open">⤢</button>${s.live ? `<button class="x" data-close title="Close this session">×</button>` : ""}</div><div class="top">
       ${s.name ? `<span class="name">${esc(s.name)}</span>` : ""}
       <span class="muted">${esc(s.repo)}</span>
       <span class="tix">${(s.tickets||[]).map(t => `<span>${esc(t)}</span>`).join("")}</span>
@@ -259,16 +302,19 @@ function headHtml(s) {
 }
 function bodyHtml(s) {
   return `${s.lastPrompt ? `<div class="prompt">You last asked: ${esc(s.lastPrompt)}</div>` : ""}
-    ${s.lastAssistant ? `<details${openReplies.has(s.sessionId) ? " open" : ""}><summary>Last reply</summary>${replyHtml(s.lastAssistant)}</details>` : ""}
-    <div class="meta">
+    ${s.lastAssistant ? `<details${openReplies.has(s.sessionId) ? " open" : ""}><summary>Last reply</summary>${replyHtml(s.lastAssistant)}${isLong(s.lastAssistant) ? `<button class="more" data-open>show full reply</button>` : ""}</details>` : ""}
+    ${metaHtml(s, false)}`;
+}
+function metaHtml(s, inView) {
+  return `<div class="meta">
       <span>last activity ${ago(s.lastAt)}</span>
       ${s.startedAt ? `<span>started ${when(s.startedAt)}</span>` : ""}
       ${s.pid ? `<span>pid ${s.pid}</span>` : ""}
       ${s.live && s.status && s.status !== "idle" && s.status !== "busy" ? `<span>${s.waitingFor ? `${esc(s.status)}: ${esc(s.waitingFor)}` : `status ${esc(s.status)}`}</span>` : ""}
       ${s.costUsd != null ? `<span>US$${s.costUsd.toFixed(2)}</span>` : ""}
       <button data-copy="${esc(`claude --resume ${s.sessionId}`)}" title="Copy resume command">copy resume</button>
-      ${s.live ? "" : `<button data-resume title="Resume this session in a new Terminal tab">resume</button>`}
-      ${canReply(s) ? `<button data-reply title="Type a reply into this session's terminal">reply</button>` : ""}
+      ${s.live || inView ? "" : `<button data-resume title="Resume this session in a new Terminal tab">resume</button>`}
+      ${canReply(s) && !inView ? `<button data-reply title="Type a reply into this session's terminal">reply</button>` : ""}
     </div>`;
 }
 
@@ -377,6 +423,7 @@ function render() {
   }
 
   if (hintCard) cards.get(hintCard)?.el.querySelector(".title.hint")?.focus({ preventScroll:true });
+  renderView();
 
   const count = k => data.live.filter(s => s.attention === k).length;
   document.getElementById("counts").textContent =
@@ -425,14 +472,21 @@ async function sendReply(id) {
     const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/prompt`, {
       method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify({ text: box.value }) });
     const j = await r.json().catch(() => ({}));
-    if (r.ok && j.ok) { box.value = ""; err.textContent = ""; openComposers.delete(id); entry.composer.hidden = true; refresh(); }
+    if (r.ok && j.ok) {
+      box.value = ""; err.textContent = "";
+      if (view.id === id) { growBox(box); view.wasOpen = false; } else { openComposers.delete(id); entry.composer.hidden = true; }
+      refresh();
+    }
     else err.textContent = j.error || `failed (${r.status})`;
   } catch { err.textContent = "server not reachable"; }
   finally { btn.disabled = false; }
 }
-board.addEventListener("keydown", e => {
-  if (e.target.tagName === "TEXTAREA" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault(); sendReply(e.target.closest(".card").dataset.id);
+// The session a control belongs to: its card's, or the open view's (which borrows the card's composer and form).
+const sessionOf = el => el.closest?.(".card")?.dataset.id ?? (viewEl.contains(el) ? view.id : null);
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA" && e.target.closest(".composer") && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    const id = sessionOf(e.target);
+    if (id) { e.preventDefault(); sendReply(id); }
   }
 });
 async function closeSession(id, button) {
@@ -460,6 +514,7 @@ async function closeSession(id, button) {
 }
 document.addEventListener("click", e => {
   const card = e.target.closest?.(".card");
+  if (card && e.target.matches("[data-open]")) { openView(card.dataset.id); return; }
   if (card && e.target.matches("[data-close]")) { closeSession(card.dataset.id, e.target); return; }
   if (card && e.target.matches("[data-reply]")) {
     const entry = cards.get(card.dataset.id);
@@ -470,18 +525,19 @@ document.addEventListener("click", e => {
     return;
   }
   if (card && e.target.matches("[data-resume]")) { openNewForm(card.dataset.id); return; }
-  if (card && e.target.matches(".send")) { sendReply(card.dataset.id); return; }
-  if (card && e.target.matches(".answer-send")) { sendAnswers(card.dataset.id); return; }
+  const id = sessionOf(e.target);
+  if (id && e.target.matches(".send")) { sendReply(id); return; }
+  if (id && e.target.matches(".answer-send")) { sendAnswers(id); return; }
   const v = e.target.dataset?.copy;
   if (v) { navigator.clipboard.writeText(v); e.target.textContent = "copied"; setTimeout(() => e.target.textContent = "copy resume", 1200); }
 });
-board.addEventListener("input", e => {
+document.addEventListener("input", e => {
   const form = e.target.closest?.(".asking");
   if (!form) return;
   if (e.target.matches(".other")) e.target.closest(".opt").querySelector("input[type=radio]").checked = true;
   updateAnswerButton(form);
 });
-board.addEventListener("change", e => { const form = e.target.closest?.(".asking"); if (form) updateAnswerButton(form); });
+document.addEventListener("change", e => { const form = e.target.closest?.(".asking"); if (form) updateAnswerButton(form); });
 async function sendAnswers(id) {
   const entry = cards.get(id);
   if (!entry || !entry.menu) return;
@@ -565,10 +621,113 @@ newForm.addEventListener("submit", async e => {
 });
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("showClosed").addEventListener("change", render);
-document.getElementById("mdOn").addEventListener("change", e => {
-  mdOn = e.target.checked;
+function setMd(on) {
+  mdOn = on;
+  document.getElementById("mdOn").checked = document.getElementById("mdOnView").checked = on;
   try { localStorage.setItem("sessionBoard.md", mdOn ? "on" : "off"); } catch {}
   render();
+}
+document.getElementById("mdOn").addEventListener("change", e => setMd(e.target.checked));
+document.getElementById("mdOnView").addEventListener("change", e => setMd(e.target.checked));
+
+// Session view: one session's whole last reply, with the card's own composer and question form moved
+// in while it is open and back when it closes, so a draft is never in two places.
+// See design/concepts/session-view.md.
+const viewEl = document.getElementById("view");
+const vHead = viewEl.querySelector(".vh"), vBody = viewEl.querySelector(".vbody");
+const vFoot = viewEl.querySelector(".vfoot"), vNote = viewEl.querySelector(".vnote");
+const view = { id:null, entry:null, s:null, head:null, body:null, wasOpen:false };
+const LABEL = Object.fromEntries(COLUMNS.map(c => [c.key, c.label]));
+function viewHeadHtml(s) {
+  return `<div class="top">
+      ${s.name ? `<span class="name">${esc(s.name)}</span>` : ""}
+      <span class="muted">${esc(s.repo)}</span>
+      <span class="lbl">${esc(LABEL[s.attention] || s.attention)}</span>
+      <span class="tix">${(s.tickets||[]).map(t => `<span>${esc(t)}</span>`).join("")}</span>
+    </div>
+    <div class="title" id="viewTitle">${esc(s.title || s.firstPrompt || "(untitled)")}</div>`;
+}
+function viewBodyHtml(s) {
+  return `${s.away ? `<div class="away">${esc(s.away)} (${ago(s.awayAt)})</div>` : ""}
+    ${s.lastPrompt ? `<div class="vprompt">You last asked: ${esc(s.lastPrompt)}</div>` : ""}
+    ${s.lastAssistant ? replyFullHtml(s.lastAssistant) : `<div class="muted">No reply yet.</div>`}
+    ${metaHtml(s, true)}`;
+}
+// The reply box grows with its text up to 40% of the view, then scrolls inside itself.
+function growBox(box) {
+  if (!viewEl.contains(box)) return;
+  const max = viewEl.clientHeight * 0.4;
+  box.style.height = "auto";
+  box.style.height = Math.min(box.scrollHeight + 2, max) + "px";
+  box.style.overflowY = box.scrollHeight + 2 > max ? "auto" : "hidden";
+}
+viewEl.addEventListener("input", e => { if (e.target.tagName === "TEXTAREA" && e.target.closest(".composer")) growBox(e.target); });
+function whyNoReply(s) {
+  if (!s.live) return "Closed. Resume it to reply.";
+  if (s.attention === "working") return "Working. You can reply when it finishes.";
+  if (s.status && s.status !== "idle" && s.status !== "busy") return s.waitingFor ? `${s.status}: ${s.waitingFor}` : `Status ${s.status}. It cannot be replied to now.`;
+  return "This session cannot be replied to now.";
+}
+function openView(id) {
+  const s = findSession(id), entry = cards.get(id);
+  if (!s || !entry || view.id) return;
+  Object.assign(view, { id, entry, s, head:null, body:null, wasOpen: openComposers.has(id) });
+  vFoot.append(entry.ask, entry.composer);
+  document.getElementById("mdOnView").checked = mdOn;
+  renderView();
+  viewEl.showModal();
+  vBody.scrollTop = 0;
+  const box = entry.composer.querySelector("textarea");
+  growBox(box);
+  if (!entry.composer.hidden) box.focus({ preventScroll:true });
+}
+// Called after every render. Re-renders only what changed, keeping the reply's scroll position.
+function renderView() {
+  if (!view.id) return;
+  const s = findSession(view.id), entry = view.entry;
+  if (!s) {
+    vNote.textContent = "This session is no longer on the board.";
+    entry.composer.hidden = true; entry.ask.hidden = true;
+    return;
+  }
+  view.s = s;
+  viewEl.style.setProperty("--c", COLOUR[s.attention]);
+  const head = viewHeadHtml(s), body = viewBodyHtml(s);
+  if (head !== view.head) { vHead.innerHTML = head; view.head = head; }
+  if (body !== view.body) { const top = vBody.scrollTop; vBody.innerHTML = body; vBody.scrollTop = top; view.body = body; }
+  // cardFor ties the composer to the card's reply toggle; in the view it follows canReply alone.
+  entry.composer.hidden = !canReply(s);
+  entry.ask.hidden = !entry.askFor;
+  vNote.textContent = canReply(s) || entry.askFor ? "" : whyNoReply(s);
+}
+viewEl.addEventListener("close", () => {
+  const { id, entry, wasOpen } = view;
+  view.id = null; view.entry = null;
+  if (!id) return;
+  vNote.textContent = "";
+  const box = entry.composer.querySelector("textarea");
+  box.style.height = box.style.overflowY = "";
+  if (cards.get(id) === entry) {
+    entry.el.insertBefore(entry.ask, entry.body);
+    entry.el.append(entry.composer);
+    if (box.value.trim()) openComposers.add(id); else if (!wasOpen) openComposers.delete(id);
+    const s = findSession(id);
+    entry.composer.hidden = !(s && canReply(s) && openComposers.has(id));
+    entry.ask.hidden = !entry.askFor;
+    entry.el.querySelector("[data-open]")?.focus({ preventScroll:true });
+  } else { entry.ask.remove(); entry.composer.remove(); }
+});
+// Only a press that starts and ends on the backdrop closes the view, so drag-selecting reply text
+// and letting go outside the dialog does not.
+let downOnBackdrop = false;
+viewEl.addEventListener("pointerdown", e => { downOnBackdrop = e.target === viewEl; });
+viewEl.addEventListener("click", e => {
+  if (e.target === viewEl && downOnBackdrop && innerWidth > 720) { viewEl.close(); return; }
+  if (e.target.matches("[data-vclose]")) { viewEl.close(); return; }
+  if (e.target.matches("[data-vcopy]") && view.s?.lastAssistant) {
+    navigator.clipboard.writeText(view.s.lastAssistant);
+    e.target.textContent = "copied"; setTimeout(() => e.target.textContent = "copy reply", 1200);
+  }
 });
 window.addEventListener("resize", markTab);
 refresh(); setInterval(refresh, 5000);
